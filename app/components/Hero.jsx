@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   Search,
@@ -10,17 +10,18 @@ import {
   X,
   Loader2,
 } from "lucide-react";
-import PropertyTypeModal from "./PropertyTypeModal";
-import BedroomsModal from "./BedroomsModal"; // Import new component
+import PropertyTypeModal from "./PropertyTypeModal"; // Import the new component
 
 export default function Hero() {
   const shouldReduceMotion = useReducedMotion();
+  const dropdownRef = useRef(null);
 
   const words = useMemo(() => ["Villa", "Townhouse", "Apartment", "Penthouse"], []);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
 
   const [searchData, setSearchData] = useState({
     location: "",
+    bedrooms: "",
     price: "",
   });
 
@@ -43,9 +44,6 @@ export default function Hero() {
 
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState([]);
-
-  const [showBedroomsModal, setShowBedroomsModal] = useState(false);
-  const [selectedBedrooms, setSelectedBedrooms] = useState([]);
 
   // Word rotation logic
   useEffect(() => {
@@ -82,12 +80,6 @@ export default function Hero() {
     );
   };
 
-  const toggleBedroom = (bedroom) => {
-    setSelectedBedrooms(prev => 
-      prev.includes(bedroom) ? prev.filter(b => b !== bedroom) : [...prev, bedroom]
-    );
-  };
-
   const handleFetchLocation = async () => {
     setLocationLoading(true);
     setLocationError("");
@@ -113,11 +105,10 @@ export default function Hero() {
     e.preventDefault();
     const result = { 
       ...searchData, 
-      types: selectedTypes,
-      bedrooms: selectedBedrooms
+      types: selectedTypes
     };
     console.log("Search Results:", result);
-    alert(`Searching for: ${searchData.location || 'Anywhere'} with ${selectedTypes.length} property types and ${selectedBedrooms.length} bedroom options`);
+    alert(`Searching for: ${searchData.location || 'Anywhere'} with ${selectedTypes.length} property types`);
   };
 
   const wordV = {
@@ -155,14 +146,6 @@ export default function Hero() {
         onClose={() => setShowTypeModal(false)}
         selectedTypes={selectedTypes}
         onToggleType={toggleType}
-      />
-
-      {/* Bedrooms Modal */}
-      <BedroomsModal
-        isOpen={showBedroomsModal}
-        onClose={() => setShowBedroomsModal(false)}
-        selectedBedrooms={selectedBedrooms}
-        onToggleBedroom={toggleBedroom}
       />
 
       <div className="mx-auto flex max-w-6xl flex-col items-start gap-12 px-4 lg:flex-row lg:px-0">
@@ -238,17 +221,19 @@ export default function Hero() {
                   <ChevronDown size={16} />
                 </button>
 
-                {/* Bedrooms Button (Opens Modal) */}
-                <button
-                  type="button"
-                  onClick={() => setShowBedroomsModal(true)}
-                  className="flex h-12 w-full items-center justify-between rounded border border-[#E2E2E2] px-3 text-sm text-[#333] bg-white hover:border-gray-300 transition-colors"
-                >
-                  <span className="truncate">
-                    {selectedBedrooms.length > 0 ? `${selectedBedrooms.length} selected` : "Bedrooms"}
-                  </span>
-                  <ChevronDown size={16} />
-                </button>
+                {/* Bedrooms Select */}
+                <div className="relative">
+                  <select 
+                    value={searchData.bedrooms}
+                    onChange={(e) => handleInputChange("bedrooms", e.target.value)}
+                    className="h-12 w-full appearance-none rounded border border-[#E2E2E2] bg-white px-3 text-sm focus:outline-none"
+                  >
+                    <option value="">Bedrooms</option>
+                    <option value="1">1 Bedroom</option>
+                    <option value="2">2 Bedrooms</option>
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                </div>
               </div>
 
               {/* Price Select */}
