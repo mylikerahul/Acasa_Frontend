@@ -1,55 +1,64 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import toast from "react-hot-toast";
-import { ChevronLeft, ChevronRight, Building } from "lucide-react";
+import { ChevronLeft, ChevronRight, Building, Loader2 } from "lucide-react";
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CONSTANTS & CONFIGURATION
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════════
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL; // http://localhost:8080
-const DEFAULT_VISIBLE_CARDS = 4; // Default for SSR or unknown screen sizes
-const AUTO_SLIDE_INTERVAL = 4000; // ✅ Auto-slide every 4 seconds (4000ms)
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const DEFAULT_VISIBLE_CARDS = 4;
+const AUTO_SLIDE_INTERVAL = 4000;
 
-// ✅ All possible image extensions
-const IMAGE_EXTENSIONS = [".jpg", ".png", ".webp", ".jpeg", ".gif", ".svg"];
+// Single high-quality fallback for developers
+const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=200&h=200&fit=crop&q=80&auto=format";
 
 const API_CONFIG = {
   params: { status: 1, limit: 20 },
   withCredentials: true,
-  timeout: 10000,
+  timeout: 8000,
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// UTILITY FUNCTIONS
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// OPTIMIZED UTILS
+// ═══════════════════════════════════════════════════════════════════
 
 const utils = {
   generateSlug: (name) => {
     if (!name?.trim()) return "";
-    return name
-      .toLowerCase()
-      .trim()
+    return name.toLowerCase().trim()
       .replace(/[^a-z0-9\s-]/g, "")
       .replace(/\s+/g, "-")
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "");
   },
 
-  getBaseImagePath: (developer) => {
+  // Smart image URL builder - returns null if no valid image
+  buildImageUrl: (developer) => {
     const imagePath = developer.logo || developer.image;
 
     if (!imagePath) return null;
 
+    // If already absolute URL
     if (/^https?:\/\//i.test(imagePath)) return imagePath;
 
+    // Clean the path
     const cleanPath = imagePath.replace(/^\/+/, "");
-    const pathWithoutExt = cleanPath.replace(/\.(jpg|jpeg|png|gif|webp|svg)$/i, "");
-
-    return `${API_URL}/uploads/developers/${pathWithoutExt}`;
+    
+    // Check if has extension
+    const hasExtension = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(cleanPath);
+    
+    // Build URL with or without extension
+    if (hasExtension) {
+      return `${API_URL}/uploads/developers/${cleanPath}`;
+    } else {
+      // Try with .webp first (most common)
+      return `${API_URL}/uploads/developers/${cleanPath}.webp`;
+    }
   },
 
   getInitials: (name) => {
@@ -74,9 +83,9 @@ const utils = {
   }),
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CUSTOM HOOKS
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// OPTIMIZED HOOKS
+// ═══════════════════════════════════════════════════════════════════
 
 const useDevelopers = () => {
   const [state, setState] = useState({
@@ -84,8 +93,11 @@ const useDevelopers = () => {
     loading: true,
     error: null,
   });
+  const fetchedRef = useRef(false);
 
   const fetchDevelopers = useCallback(async () => {
+    if (fetchedRef.current) return;
+    
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
@@ -97,6 +109,7 @@ const useDevelopers = () => {
 
       const developers = data.data.developers.map(utils.transformDeveloper);
       setState({ developers, loading: false, error: null });
+      fetchedRef.current = true;
     } catch (err) {
       const message = axios.isAxiosError(err)
         ? err.response?.data?.message || err.message
@@ -115,7 +128,6 @@ const useDevelopers = () => {
   return { ...state, refetch: fetchDevelopers };
 };
 
-// ✅ Updated useCarousel with autoSlide and isPaused (from hover)
 const useCarousel = (
   totalItems,
   responsiveVisibleCount,
@@ -130,8 +142,6 @@ const useCarousel = (
     [totalItems, responsiveVisibleCount]
   );
 
-  // Reset currentIndex if the number of visible cards changes,
-  // or if totalItems changes (e.g., search results change)
   useEffect(() => {
     setCurrentIndex(0);
   }, [totalItems, responsiveVisibleCount]);
@@ -150,7 +160,7 @@ const useCarousel = (
 
   const reset = useCallback(() => setCurrentIndex(0), []);
 
-  // ✅ Auto-slide logic
+  // Auto-slide logic
   useEffect(() => {
     if (!autoSlide || !showNavigation || isPaused) {
       return;
@@ -161,12 +171,12 @@ const useCarousel = (
         if (prev < maxIndex) {
           return prev + 1;
         } else {
-          return 0; // Loop back to the start
+          return 0;
         }
       });
     }, intervalTime);
 
-    return () => clearInterval(interval); // Cleanup!
+    return () => clearInterval(interval);
   }, [autoSlide, intervalTime, showNavigation, maxIndex, isPaused]);
 
   return {
@@ -181,14 +191,103 @@ const useCarousel = (
   };
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// OPTIMIZED IMAGE COMPONENT
+// ═══════════════════════════════════════════════════════════════════
+
+const DeveloperImage = ({ imageUrl, name }) => {
+  const [imgSrc, setImgSrc] = useState(imageUrl || FALLBACK_IMAGE);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const imgRef = useRef(null);
+
+  useEffect(() => {
+    setImgSrc(imageUrl || FALLBACK_IMAGE);
+    setIsLoading(true);
+    setHasError(false);
+  }, [imageUrl]);
+
+  const handleError = useCallback(() => {
+    if (imgSrc !== FALLBACK_IMAGE) {
+      setImgSrc(FALLBACK_IMAGE);
+      setIsLoading(true);
+      setHasError(true);
+    } else {
+      // Even fallback failed, show initials
+      setIsLoading(false);
+      setHasError(true);
+    }
+  }, [imgSrc]);
+
+  const handleLoad = useCallback(() => {
+    setIsLoading(false);
+  }, []);
+
+  // Intersection Observer for lazy loading
+  useEffect(() => {
+    if (!imgRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && imgRef.current) {
+            const img = imgRef.current;
+            if (img.dataset.src) {
+              img.src = img.dataset.src;
+              img.removeAttribute('data-src');
+            }
+          }
+        });
+      },
+      { rootMargin: '50px' }
+    );
+
+    observer.observe(imgRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Show initials if no image or fallback also failed
+  if (!imageUrl || (hasError && imgSrc === FALLBACK_IMAGE)) {
+    return (
+      <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+        <span className="text-xl font-semibold text-gray-500">
+          {utils.getInitials(name)}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-20 h-20 mb-3">
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Loader2 size={20} className="text-gray-400 animate-spin" />
+        </div>
+      )}
+
+      <img
+        ref={imgRef}
+        data-src={imgSrc}
+        alt={name}
+        className="max-h-20 w-auto object-contain transition-opacity duration-300"
+        style={{ opacity: isLoading ? 0 : 1 }}
+        onLoad={handleLoad}
+        onError={handleError}
+        loading="lazy"
+        decoding="async"
+      />
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════
 // UI COMPONENTS
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 const SkeletonCard = () => (
-  <div className="bg-white rounded-2xl border border-gray-200 flex flex-col items-center justify-center h-40 px-4 animate-pulse">
-    <div className="w-20 h-20 bg-gray-200 rounded-full mb-3" />
-    <div className="w-3/4 h-3 bg-gray-200 rounded" />
+  <div className="bg-white rounded-2xl border border-gray-200 flex flex-col items-center justify-center h-40 px-4">
+    <div className="w-20 h-20 bg-gray-200 rounded-full mb-3 animate-pulse" />
+    <div className="w-3/4 h-3 bg-gray-200 rounded animate-pulse" />
   </div>
 );
 
@@ -224,10 +323,7 @@ const ErrorState = ({ message, onRetry }) => (
 
 const SectionHeader = () => (
   <div className="mb-6">
-    <h2
-      id="developers-section-title"
-      className="text-xs md:text-sm font-semibold tracking-[0.25em] uppercase text-black"
-    >
+    <h2 className="text-xs md:text-sm font-semibold tracking-[0.25em] uppercase text-black">
       Developers
     </h2>
   </div>
@@ -238,101 +334,33 @@ const CornerNav = ({ showNav, canPrev, canNext, onPrev, onNext }) => {
 
   return (
     <div className="absolute top-4 right-4 md:top-4 md:right-10 flex items-center gap-2 z-10">
-      <NavButton direction="prev" disabled={!canPrev} onClick={onPrev} />
-      <NavButton direction="next" disabled={!canNext} onClick={onNext} />
+      <button
+        onClick={onPrev}
+        disabled={!canPrev}
+        className={`w-8 h-8 rounded-full bg-white border border-gray-300 flex items-center justify-center shadow-sm transition-all duration-200
+          ${!canPrev ? "opacity-40 cursor-not-allowed" : "hover:bg-gray-50 hover:shadow-md active:scale-95"}`}
+      >
+        <ChevronLeft size={16} className="text-black" />
+      </button>
+      <button
+        onClick={onNext}
+        disabled={!canNext}
+        className={`w-8 h-8 rounded-full bg-white border border-gray-300 flex items-center justify-center shadow-sm transition-all duration-200
+          ${!canNext ? "opacity-40 cursor-not-allowed" : "hover:bg-gray-50 hover:shadow-md active:scale-95"}`}
+      >
+        <ChevronRight size={16} className="text-black" />
+      </button>
     </div>
   );
 };
 
-const NavButton = ({ direction, disabled, onClick }) => (
-  <button
-    onClick={onClick}
-    disabled={disabled}
-    aria-label={direction === "prev" ? "Previous developers" : "Next developers"}
-    className={`w-8 h-8 rounded-full bg-white border border-gray-300 flex items-center justify-center shadow-sm transition-all duration-200
-      ${disabled
-        ? "opacity-40 cursor-not-allowed"
-        : "hover:bg-gray-50 hover:shadow-md active:scale-95"
-      }`}
-  >
-    {direction === "prev" ? (
-      <ChevronLeft size={16} className="text-black" />
-    ) : (
-      <ChevronRight size={16} className="text-black" />
-    )}
-  </button>
-);
-
-const DeveloperImage = ({ basePath, name }) => {
-  const [currentExtIndex, setCurrentExtIndex] = useState(0);
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  // Use a unique key for the img to force remount on basePath or index change
-  // This helps when retrying different extensions
-  const imgKey = `${basePath}-${currentExtIndex}`;
-
-  // Reset state when basePath changes
-  useEffect(() => {
-    setCurrentExtIndex(0);
-    setLoaded(false);
-    setFailed(false);
-  }, [basePath]);
-
-  const handleError = () => {
-    const nextIndex = currentExtIndex + 1;
-    if (nextIndex < IMAGE_EXTENSIONS.length) {
-      setCurrentExtIndex(nextIndex);
-    } else {
-      setFailed(true);
-    }
-  };
-
-  const handleLoad = () => {
-    setLoaded(true);
-  };
-
-  // If no base path or all failed, show fallback
-  if (!basePath || failed) {
-    return (
-      <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-        <span className="text-xl font-semibold text-gray-500">
-          {utils.getInitials(name)}
-        </span>
-      </div>
-    );
-  }
-
-  const currentUrl = `${basePath}${IMAGE_EXTENSIONS[currentExtIndex]}`;
-
-  return (
-    <img
-      key={imgKey} // Force remount to retry loading if extension changes
-      src={currentUrl}
-      alt={name}
-      className={`max-h-20 w-auto object-contain mb-3 transition-opacity duration-200 ${
-        loaded ? "opacity-100" : "opacity-0"
-      }`}
-      onError={handleError}
-      onLoad={handleLoad}
-      loading="lazy"
-      decoding="async"
-    />
-  );
-};
-
-const DeveloperCard = ({ developer, onClick }) => {
-  const basePath = utils.getBaseImagePath(developer);
-
+const DeveloperCard = ({ developer, imageUrl, onClick }) => {
   return (
     <article
       onClick={() => onClick(developer)}
       className="bg-white rounded-2xl border border-gray-200 flex flex-col items-center justify-center h-40 px-4 cursor-pointer transition-all duration-200 hover:shadow-lg hover:border-gray-300 hover:-translate-y-1"
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onClick(developer)}
     >
-      <DeveloperImage basePath={basePath} name={developer.name} />
+      <DeveloperImage imageUrl={imageUrl} name={developer.name} />
 
       <div className="w-full px-2 text-sm text-gray-700 text-center truncate font-medium">
         {developer.name}
@@ -341,21 +369,21 @@ const DeveloperCard = ({ developer, onClick }) => {
   );
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 export default function DevelopersSection() {
   const router = useRouter();
-  const [isHovered, setIsHovered] = useState(false); // ✅ New state for hover pause
+  const [isHovered, setIsHovered] = useState(false);
 
   // Responsive visible cards logic
   const getResponsiveVisibleCards = useCallback(() => {
     if (typeof window === "undefined") return DEFAULT_VISIBLE_CARDS;
-    if (window.innerWidth >= 1024) return 4; // lg and up: 4 cards
-    if (window.innerWidth >= 768) return 3; // md: 3 cards
-    if (window.innerWidth >= 640) return 2; // sm: 2 cards
-    return 2; // xs: 2 cards
+    if (window.innerWidth >= 1024) return 4;
+    if (window.innerWidth >= 768) return 3;
+    if (window.innerWidth >= 640) return 2;
+    return 2;
   }, []);
 
   const [responsiveVisibleCards, setResponsiveVisibleCards] = useState(
@@ -369,32 +397,26 @@ export default function DevelopersSection() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [getResponsiveVisibleCards]);
-  // End responsive visible cards logic
 
   const { developers, loading, error, refetch } = useDevelopers();
 
-  // Pass responsiveVisibleCards, autoSlide, intervalTime, and isPaused to useCarousel
   const carousel = useCarousel(
     developers.length,
     responsiveVisibleCards,
-    true, // ✅ Enable auto-slide
+    true,
     AUTO_SLIDE_INTERVAL,
-    isHovered // ✅ Pause auto-slide when hovered
+    isHovered
   );
 
   const handleDeveloperClick = useCallback(
     (developer) => {
-      const path = `/developers/${developer.slug || developer.id}`;
-      router.push(path);
+      router.push(`/developers/${developer.slug || developer.id}`);
     },
     [router]
   );
 
   return (
-    <section
-      className="relative bg-[#f7f7f7] py-10 px-6 md:px-14"
-      aria-labelledby="developers-section-title"
-    >
+    <section className="relative bg-gray-50 py-10 px-6 md:px-14">
       <CornerNav
         showNav={carousel.showNavigation}
         canPrev={carousel.canGoPrev}
@@ -415,8 +437,8 @@ export default function DevelopersSection() {
         ) : (
           <div
             className="relative overflow-hidden w-full"
-            onMouseEnter={() => setIsHovered(true)} // ✅ Pause on hover
-            onMouseLeave={() => setIsHovered(false)} // ✅ Resume on mouse leave
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
           >
             <div
               className="flex transition-transform duration-500 ease-in-out"
@@ -431,12 +453,13 @@ export default function DevelopersSection() {
                   key={developer.id}
                   style={{
                     flexBasis: `${100 / carousel.visibleCount}%`,
-                    minWidth: `${100 / carousel.visibleCount}%`, // Ensure it takes full width
+                    minWidth: `${100 / carousel.visibleCount}%`,
                   }}
                   className="flex-none px-2"
                 >
                   <DeveloperCard
                     developer={developer}
+                    imageUrl={utils.buildImageUrl(developer)}
                     onClick={handleDeveloperClick}
                   />
                 </div>

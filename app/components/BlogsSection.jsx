@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import toast from "react-hot-toast";
 import {
-  ImageOff,
   BookOpen,
   ChevronLeft,
   ChevronRight,
@@ -16,57 +15,54 @@ import {
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════
-// CONSTANTS & CONFIG
+// CONSTANTS
 // ═══════════════════════════════════════════════════════════════════
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const VISIBLE_CARDS = 3;
 const SKELETON_COUNT = 3;
 
+// Single high-quality fallback for blogs
+const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1499750310107-5fef28a66643?w=800&h=600&fit=crop&q=80&auto=format";
+
 // ═══════════════════════════════════════════════════════════════════
-// UTILS
+// OPTIMIZED UTILS
 // ═══════════════════════════════════════════════════════════════════
 
 const utils = {
   generateSlug: (title) => {
     if (!title?.trim()) return "";
-    return title
-      .toLowerCase()
-      .trim()
+    return title.toLowerCase().trim()
       .replace(/[^a-z0-9\s-]/g, "")
       .replace(/\s+/g, "-")
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "");
   },
 
-  // ✅ Correct image URL builder (same as your original)
+  // Smart image URL builder - returns null if no valid image
   buildImageUrl: (blog) => {
     const imagePath = blog.imageurl || blog.image || blog.featured_image || blog.thumbnail;
     
     if (!imagePath) return null;
 
-    // If already absolute URL, return as is
-    if (/^https?:\/\//i.test(imagePath)) {
-      return imagePath;
-    }
+    // If already absolute URL
+    if (/^https?:\/\//i.test(imagePath)) return imagePath;
 
-    // If data URL, return as is
-    if (imagePath.startsWith("data:")) {
-      return imagePath;
-    }
+    // If data URL
+    if (imagePath.startsWith("data:")) return imagePath;
 
     // Clean the path
     let cleanPath = imagePath.replace(/^\/+/, "");
 
-    // ✅ Check if already has extension
+    // Check if already has extension
     const hasExtension = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(cleanPath);
 
-    // ✅ If no extension, add .webp (your API uses webp)
+    // If no extension, add .webp
     if (!hasExtension) {
       cleanPath = `${cleanPath}.webp`;
     }
 
-    // Build full URL
+    // Build full URL based on path structure
     if (cleanPath.startsWith("uploads/blogs/")) {
       return `${API_URL}/${cleanPath}`;
     } else if (cleanPath.startsWith("uploads/")) {
@@ -74,7 +70,6 @@ const utils = {
     } else if (cleanPath.startsWith("blogs/")) {
       return `${API_URL}/uploads/${cleanPath}`;
     } else {
-      // Default: just filename, add path
       return `${API_URL}/uploads/blogs/${cleanPath}`;
     }
   },
@@ -111,7 +106,6 @@ const utils = {
     description: utils.stripHtml(
       blog.descriptions || blog.description || blog.seo_description || ""
     ),
-    // ✅ Keep original imageurl for building URL
     imageurl: blog.imageurl,
     image: blog.image,
     author: blog.writer || blog.author || "",
@@ -122,7 +116,7 @@ const utils = {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-// HOOKS
+// OPTIMIZED HOOKS
 // ═══════════════════════════════════════════════════════════════════
 
 const useBlogs = () => {
@@ -131,17 +125,17 @@ const useBlogs = () => {
     loading: true,
     error: null,
   });
+  const fetchedRef = useRef(false);
 
   const fetchBlogs = useCallback(async () => {
+    if (fetchedRef.current) return;
+    
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
       const { data } = await axios.get(`${API_URL}/api/v1/blogs/all`, {
-        params: {
-          status: 1,
-          limit: 20,
-        },
-        timeout: 10000,
+        params: { status: 1, limit: 20 },
+        timeout: 8000,
       });
 
       let blogsData = [];
@@ -164,13 +158,14 @@ const useBlogs = () => {
       );
 
       const blogs = publishedBlogs.map(utils.transformBlog);
-
       setState({ blogs, loading: false, error: null });
+      fetchedRef.current = true;
     } catch (err) {
       const message = axios.isAxiosError(err)
         ? err.response?.data?.message || err.message
         : "Failed to load blogs";
 
+      console.error("Blogs fetch error:", err);
       setState((prev) => ({ ...prev, loading: false, error: message }));
       toast.error(message);
     }
@@ -221,18 +216,6 @@ const useCarousel = (totalItems, visibleCount = VISIBLE_CARDS) => {
   };
 };
 
-const useImageLoader = () => {
-  const [errors, setErrors] = useState(new Set());
-
-  const handleError = useCallback((blogId) => {
-    setErrors((prev) => new Set(prev).add(blogId));
-  }, []);
-
-  const hasError = useCallback((id) => errors.has(id), [errors]);
-
-  return { handleError, hasError };
-};
-
 const useFavorites = () => {
   const [favorites, setFavorites] = useState(new Set());
   const [savingId, setSavingId] = useState(null);
@@ -264,16 +247,96 @@ const useFavorites = () => {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-// UI COMPONENTS (Properties/Projects style)
+// OPTIMIZED IMAGE COMPONENT
+// ═══════════════════════════════════════════════════════════════════
+
+const BlogImage = ({ blog, imageUrl }) => {
+  const [imgSrc, setImgSrc] = useState(imageUrl || FALLBACK_IMAGE);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const imgRef = useRef(null);
+
+  useEffect(() => {
+    setImgSrc(imageUrl || FALLBACK_IMAGE);
+    setIsLoading(true);
+    setHasError(false);
+  }, [imageUrl]);
+
+  const handleError = useCallback(() => {
+    if (imgSrc !== FALLBACK_IMAGE) {
+      setImgSrc(FALLBACK_IMAGE);
+      setIsLoading(true);
+      setHasError(true);
+    }
+  }, [imgSrc]);
+
+  const handleLoad = useCallback(() => {
+    setIsLoading(false);
+  }, []);
+
+  // Intersection Observer for lazy loading
+  useEffect(() => {
+    if (!imgRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && imgRef.current) {
+            const img = imgRef.current;
+            if (img.dataset.src) {
+              img.src = img.dataset.src;
+              img.removeAttribute('data-src');
+            }
+          }
+        });
+      },
+      { rootMargin: '50px' }
+    );
+
+    observer.observe(imgRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div className="relative w-full h-full bg-gray-100">
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Loader2 size={24} className="text-gray-400 animate-spin" />
+        </div>
+      )}
+
+      <img
+        ref={imgRef}
+        data-src={imgSrc}
+        alt={blog.title}
+        className="w-full h-full object-cover transition-opacity duration-300"
+        style={{ opacity: isLoading ? 0 : 1 }}
+        onLoad={handleLoad}
+        onError={handleError}
+        loading="lazy"
+        decoding="async"
+      />
+
+      {hasError && !isLoading && (
+        <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] px-2 py-1 rounded-md">
+          Default Image
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// UI COMPONENTS
 // ═══════════════════════════════════════════════════════════════════
 
 const SkeletonCard = () => (
   <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200">
-    <div className="h-56 bg-gray-100" />
+    <div className="h-56 bg-gray-100 animate-pulse" />
     <div className="p-4 space-y-3">
-      <div className="h-4 bg-gray-200 rounded w-1/3" />
-      <div className="h-4 bg-gray-200 rounded w-3/4" />
-      <div className="h-3 bg-gray-200 rounded w-1/2" />
+      <div className="h-4 bg-gray-200 rounded w-1/3 animate-pulse" />
+      <div className="h-4 bg-gray-200 rounded w-3/4 animate-pulse" />
+      <div className="h-3 bg-gray-200 rounded w-1/2 animate-pulse" />
     </div>
   </div>
 );
@@ -298,10 +361,7 @@ const EmptyState = () => (
 
 const SectionHeader = ({ showNav, canPrev, canNext, onPrev, onNext }) => (
   <div className="flex items-center justify-between mb-8">
-    <h2
-      id="blogs-section-title"
-      className="text-xs md:text-sm font-normal tracking-[0.4em] text-[#111827] uppercase"
-    >
+    <h2 className="text-xs md:text-sm font-normal tracking-[0.4em] text-gray-900 uppercase">
       Blogs
     </h2>
 
@@ -310,26 +370,16 @@ const SectionHeader = ({ showNav, canPrev, canNext, onPrev, onNext }) => (
         <button
           onClick={onPrev}
           disabled={!canPrev}
-          aria-label="Previous blogs"
-          className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm
-            ${
-              !canPrev
-                ? "opacity-40 cursor-not-allowed"
-                : "hover:border-gray-500 hover:text-gray-700"
-            }`}
+          className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm transition-all
+            ${!canPrev ? "opacity-40 cursor-not-allowed" : "hover:border-gray-500"}`}
         >
           <ChevronLeft size={18} className="text-gray-700" />
         </button>
         <button
           onClick={onNext}
           disabled={!canNext}
-          aria-label="Next blogs"
-          className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm
-            ${
-              !canNext
-                ? "opacity-40 cursor-not-allowed"
-                : "hover:border-gray-500 hover:text-gray-700"
-            }`}
+          className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm transition-all
+            ${!canNext ? "opacity-40 cursor-not-allowed" : "hover:border-gray-500"}`}
         >
           <ChevronRight size={18} className="text-gray-700" />
         </button>
@@ -338,51 +388,11 @@ const SectionHeader = ({ showNav, canPrev, canNext, onPrev, onNext }) => (
   </div>
 );
 
-const BlogImage = ({ blog, imageUrl, hasError, onError }) => {
-  const [loaded, setLoaded] = useState(false);
-
-  if (!imageUrl || hasError) {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-        <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center mb-3">
-          <BookOpen size={30} className="text-gray-500" />
-        </div>
-        <span className="text-gray-500 text-sm font-normal">Blog Image</span>
-        <span className="text-gray-400 text-xs mt-1">Coming Soon</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative w-full h-full">
-      {!loaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-          <Loader2 size={26} className="text-gray-400 animate-spin" />
-        </div>
-      )}
-
-      <img
-        src={imageUrl}
-        alt={blog.title}
-        className={`w-full h-full object-cover transition-opacity duration-300 ${
-          loaded ? "opacity-100" : "opacity-0"
-        }`}
-        onLoad={() => setLoaded(true)}
-        onError={() => onError(blog.id)}
-        loading="lazy"
-        decoding="async"
-      />
-    </div>
-  );
-};
-
 const BlogCard = ({
   blog,
   imageUrl,
-  hasError,
   isLiked,
   isSaving,
-  onImageError,
   onFavoriteClick,
   onClick,
 }) => {
@@ -393,73 +403,51 @@ const BlogCard = ({
         .join(" ")
     : null;
 
-  const handleFavoriteClick = (e) => {
-    e.stopPropagation();
-    onFavoriteClick(blog.id);
-  };
-
   return (
     <article
       onClick={() => onClick(blog)}
       className="group bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200 
         cursor-pointer hover:shadow-md transition-shadow duration-200 flex flex-col"
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onClick(blog)}
     >
-      {/* Image */}
       <div className="relative h-56 bg-gray-100 overflow-hidden">
-        {/* Category badge */}
         {formattedCategory && (
-          <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full text-[10px] font-normal shadow-sm bg-white/90 text-gray-800 border border-gray-200">
+          <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full text-[10px] shadow-sm bg-white/95 text-gray-800 border border-gray-200">
             {formattedCategory}
           </div>
         )}
 
-        <BlogImage
-          blog={blog}
-          imageUrl={imageUrl}
-          hasError={hasError}
-          onError={onImageError}
-        />
+        <BlogImage blog={blog} imageUrl={imageUrl} />
 
-        {/* Top-right buttons */}
         <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
           <button
-            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            className="w-8 h-8 rounded-full bg-white/95 flex items-center justify-center shadow-sm border border-gray-200 hover:bg-white transition-colors"
             onClick={(e) => e.stopPropagation()}
-            aria-label="View details"
           >
             <Eye size={15} className="text-gray-700" />
           </button>
           <button
-            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            className="w-8 h-8 rounded-full bg-white/95 flex items-center justify-center shadow-sm border border-gray-200 hover:bg-white transition-colors"
             onClick={(e) => e.stopPropagation()}
-            aria-label="More options"
           >
             <RotateCcw size={15} className="text-gray-700" />
           </button>
         </div>
 
-        {/* Fake image arrows */}
         <button
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/95 flex items-center justify-center shadow-sm border border-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
           onClick={(e) => e.stopPropagation()}
-          aria-label="Previous image"
         >
           <ChevronLeft size={14} className="text-gray-700" />
         </button>
         <button
-          className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/95 flex items-center justify-center shadow-sm border border-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
           onClick={(e) => e.stopPropagation()}
-          aria-label="Next image"
         >
           <ChevronRight size={14} className="text-gray-700" />
         </button>
 
-        {/* Date badge bottom left */}
         {blog.createdAt && (
-          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 bg-white/90 px-2.5 py-1 rounded-lg shadow-sm border border-gray-200">
+          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 bg-white/95 px-2.5 py-1 rounded-lg shadow-sm border border-gray-200">
             <span className="text-[11px] font-normal text-gray-800">
               {utils.formatDate(blog.createdAt)}
             </span>
@@ -467,9 +455,8 @@ const BlogCard = ({
         )}
       </div>
 
-      {/* Content */}
       <div className="flex-1 flex flex-col justify-between px-5 pt-4 pb-4">
-        <div className="pr-2">
+        <div>
           <h3 className="text-sm md:text-[15px] font-medium text-gray-900 line-clamp-2">
             {blog.title}
           </h3>
@@ -480,35 +467,31 @@ const BlogCard = ({
           )}
         </div>
 
-        {/* Author + Heart */}
         <div className="mt-3 flex items-center justify-between">
           <p className="text-xs text-gray-500">
             {blog.author ? (
               <>
-                By <span className="font-normal text-gray-900">{blog.author}</span>
+                By <span className="font-medium text-gray-900">{blog.author}</span>
               </>
             ) : (
-              <span className="font-normal text-gray-900">Read More</span>
+              <span className="font-medium text-gray-900">Read More</span>
             )}
           </p>
 
           <button
-            onClick={handleFavoriteClick}
+            onClick={(e) => {
+              e.stopPropagation();
+              onFavoriteClick(blog.id);
+            }}
             disabled={isSaving}
-            aria-label={isLiked ? "Remove from favorites" : "Add to favorites"}
-            className={`flex items-center justify-center
-              ${isSaving ? "cursor-wait opacity-60" : ""}`}
+            className={isSaving ? "cursor-wait opacity-60" : ""}
           >
             {isSaving ? (
               <Loader2 size={20} className="text-gray-400 animate-spin" />
             ) : (
               <Heart
                 size={22}
-                className={
-                  isLiked
-                    ? "text-gray-900 fill-gray-900"
-                    : "text-gray-800 hover:fill-gray-800 hover:text-gray-800"
-                }
+                className={isLiked ? "text-gray-900 fill-gray-900" : "text-gray-800 hover:fill-gray-800 transition-all"}
               />
             )}
           </button>
@@ -517,18 +500,6 @@ const BlogCard = ({
     </article>
   );
 };
-
-const ViewAllButton = ({ onClick }) => (
-  <div className="mt-10 text-center">
-    <button
-      onClick={onClick}
-      className="inline-flex items-center justify-center px-10 py-3 text-sm font-normal
-        bg-transparent text-black border border-transparent hover:border-black rounded-full"
-    >
-      All Blogs
-    </button>
-  </div>
-);
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -539,23 +510,15 @@ export default function BlogsSection() {
 
   const { blogs, loading, error } = useBlogs();
   const carousel = useCarousel(blogs.length);
-  const { handleError: handleImageError, hasError: imageHasError } =
-    useImageLoader();
   const { savingId, toggleFavorite, isFavorite } = useFavorites();
 
   const visibleBlogs = useMemo(
-    () =>
-      blogs.slice(
-        carousel.currentIndex,
-        carousel.currentIndex + VISIBLE_CARDS
-      ),
+    () => blogs.slice(carousel.currentIndex, carousel.currentIndex + VISIBLE_CARDS),
     [blogs, carousel.currentIndex]
   );
 
   const handleBlogClick = useCallback(
-    (blog) => {
-      router.push(`/blogs/${blog.slug || blog.id}`);
-    },
+    (blog) => router.push(`/blogs/${blog.slug || blog.id}`),
     [router]
   );
 
@@ -568,10 +531,7 @@ export default function BlogsSection() {
   }
 
   return (
-    <section
-      className="bg-[#F7F7F7] py-12 px-4 md:px-10"
-      aria-labelledby="blogs-section-title"
-    >
+    <section className="bg-gray-50 py-12 px-4 md:px-10">
       <div className="max-w-7xl mx-auto">
         <SectionHeader
           showNav={carousel.showNavigation}
@@ -587,20 +547,14 @@ export default function BlogsSection() {
           <EmptyState />
         ) : (
           <>
-            <div
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-              role="list"
-              aria-label="Blog articles"
-            >
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {visibleBlogs.map((blog) => (
                 <BlogCard
                   key={blog.id}
                   blog={blog}
                   imageUrl={utils.buildImageUrl(blog)}
-                  hasError={imageHasError(blog.id)}
                   isLiked={isFavorite(blog.id)}
                   isSaving={savingId === blog.id}
-                  onImageError={handleImageError}
                   onFavoriteClick={toggleFavorite}
                   onClick={handleBlogClick}
                 />
@@ -608,7 +562,15 @@ export default function BlogsSection() {
             </div>
 
             {blogs.length > VISIBLE_CARDS && (
-              <ViewAllButton onClick={handleViewAll} />
+              <div className="mt-10 text-center">
+                <button
+                  onClick={handleViewAll}
+                  className="inline-flex items-center justify-center px-10 py-3 text-sm font-normal
+                    bg-transparent text-black border border-transparent hover:border-black rounded-full transition-colors"
+                >
+                  All Blogs
+                </button>
+              </div>
             )}
           </>
         )}

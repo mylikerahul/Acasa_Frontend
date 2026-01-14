@@ -79,16 +79,27 @@ export default function Hero() {
     }
   }, [searchData.location, popularLocations]);
 
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const handleInputChange = useCallback((field, value) => {
     setSearchData((prev) => ({ ...prev, [field]: value }));
     if (field === "location") setLocationSaved(false);
   }, []);
 
-  const toggleType = (type) => {
+  const toggleType = useCallback((type) => {
     setSelectedTypes((prev) =>
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
     );
-  };
+  }, []);
 
   const handleFetchLocation = async () => {
     setLocationLoading(true);
@@ -96,7 +107,10 @@ export default function Hero() {
     try {
       if (!navigator.geolocation) throw new Error("Geolocation not supported");
       const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject);
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          timeout: 10000,
+          enableHighAccuracy: true
+        });
       });
       const { latitude, longitude } = position.coords;
       const displayLoc = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
@@ -125,7 +139,7 @@ export default function Hero() {
     );
   };
 
-  const wordV = {
+  const wordVariants = {
     initial: { y: "100%", opacity: 0 },
     animate: {
       y: "0%",
@@ -139,13 +153,139 @@ export default function Hero() {
     },
   };
 
+  // Inline styles for production stability
+  const styles = {
+    section: {
+      position: 'relative',
+      backgroundColor: '#ffffff',
+      paddingTop: '3rem',
+      paddingBottom: '3rem',
+      overflow: 'visible',
+      zIndex: 10
+    },
+    sectionLg: {
+      paddingTop: '5rem',
+      paddingBottom: '5rem'
+    },
+    container: {
+      margin: '0 auto',
+      display: 'flex',
+      maxWidth: '72rem',
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      gap: '3rem',
+      padding: '0 1rem'
+    },
+    containerLg: {
+      flexDirection: 'row',
+      padding: '0'
+    },
+    buyContainer: {
+      background: '#ffffff',
+      borderRadius: '16px',
+      padding: '28px',
+      boxShadow: '0 10px 40px rgba(0, 0, 0, 0.08)'
+    },
+    heading: {
+      fontFamily: "'Playfair Display', serif",
+      fontSize: 'clamp(32px, 5vw, 52px)',
+      lineHeight: '1.15',
+      color: '#111111',
+      fontWeight: 'bold'
+    },
+    wordWrapper: {
+      position: 'relative',
+      display: 'inline-flex',
+      height: '1.1em',
+      overflow: 'hidden',
+      alignItems: 'baseline',
+      color: '#E79A2D'
+    },
+    description: {
+      marginTop: '1.5rem',
+      maxWidth: '32rem',
+      fontSize: '16px',
+      color: '#4B4B4B',
+      lineHeight: '1.625'
+    },
+    input: {
+      height: '48px',
+      width: '100%',
+      borderRadius: '6px',
+      border: '1px solid',
+      paddingLeft: '44px',
+      paddingRight: '16px',
+      fontSize: '14px',
+      transition: 'all 0.2s'
+    },
+    select: {
+      height: '48px',
+      width: '100%',
+      appearance: 'none',
+      borderRadius: '6px',
+      border: '1px solid #E2E2E2',
+      backgroundColor: '#ffffff',
+      padding: '0 12px',
+      fontSize: '14px',
+      outline: 'none'
+    },
+    button: {
+      marginTop: '2rem',
+      borderRadius: '9999px',
+      border: '1px solid #000000',
+      paddingLeft: '2.5rem',
+      paddingRight: '2.5rem',
+      paddingTop: '0.75rem',
+      paddingBottom: '0.75rem',
+      fontSize: '14px',
+      fontWeight: 'bold',
+      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+      transition: 'all 0.2s',
+      cursor: 'pointer'
+    },
+    searchButton: {
+      marginTop: '0.5rem',
+      display: 'flex',
+      height: '48px',
+      width: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '0.5rem',
+      borderRadius: '9999px',
+      backgroundColor: '#000000',
+      fontSize: '14px',
+      fontWeight: 'bold',
+      color: '#ffffff',
+      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
+      transition: 'all 0.2s',
+      cursor: 'pointer',
+      border: 'none'
+    }
+  };
+
   return (
-    <section className="relative bg-white py-12 lg:py-20 overflow-visible z-10">
+    <section 
+      style={{
+        ...styles.section,
+        ...(window.innerWidth >= 1024 ? styles.sectionLg : {})
+      }}
+      className="relative bg-white py-12 lg:py-20 overflow-visible z-10"
+    >
       {/* Location Modal */}
       <AnimatePresence>
         {showLocationModal && (
           <motion.div
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 60,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(0, 0, 0, 0.4)',
+              backdropFilter: 'blur(4px)',
+              padding: '1rem'
+            }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -154,26 +294,70 @@ export default function Hero() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-sm rounded-2xl bg-white p-7 shadow-2xl"
+              style={{
+                position: 'relative',
+                width: '100%',
+                maxWidth: '24rem',
+                borderRadius: '16px',
+                backgroundColor: '#ffffff',
+                padding: '1.75rem',
+                boxShadow: '0 25px 50px rgba(0, 0, 0, 0.15)'
+              }}
             >
               <button
                 onClick={() => setShowLocationModal(false)}
-                className="absolute right-4 top-4 text-gray-400"
+                style={{
+                  position: 'absolute',
+                  right: '16px',
+                  top: '16px',
+                  color: '#9ca3af',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+                aria-label="Close modal"
               >
                 <X size={20} />
               </button>
-              <div className="mb-4 h-12 w-12 rounded-full bg-black flex items-center justify-center text-white">
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '48px',
+                width: '48px',
+                borderRadius: '9999px',
+                backgroundColor: '#000000',
+                color: '#ffffff',
+                marginBottom: '1rem'
+              }}>
                 <MapPin />
               </div>
-              <h3 className="text-lg font-bold mb-2">Enable Location?</h3>
+              <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '0.5rem' }}>
+                Enable Location?
+              </h3>
               {locationError && (
-                <p className="text-red-500 text-sm mb-3">{locationError}</p>
+                <p style={{ color: '#ef4444', fontSize: '14px', marginBottom: '0.75rem' }}>
+                  {locationError}
+                </p>
               )}
-              <div className="space-y-3">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <button
                   onClick={handleFetchLocation}
                   disabled={locationLoading}
-                  className="w-full bg-black text-white py-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-70"
+                  style={{
+                    width: '100%',
+                    backgroundColor: '#000000',
+                    color: '#ffffff',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    opacity: locationLoading ? 0.7 : 1,
+                    cursor: locationLoading ? 'not-allowed' : 'pointer',
+                    border: 'none'
+                  }}
                 >
                   {locationLoading ? (
                     <Loader2 className="animate-spin" />
@@ -184,7 +368,14 @@ export default function Hero() {
                 </button>
                 <button
                   onClick={() => setShowLocationModal(false)}
-                  className="w-full border border-gray-200 py-3 rounded-lg"
+                  style={{
+                    width: '100%',
+                    border: '1px solid #e5e7eb',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    backgroundColor: '#ffffff',
+                    cursor: 'pointer'
+                  }}
                 >
                   Manual Search
                 </button>
@@ -202,22 +393,28 @@ export default function Hero() {
         onToggleType={toggleType}
       />
 
-      <div className="mx-auto flex max-w-6xl flex-col items-start gap-12 px-4 lg:flex-row lg:px-0">
+      <div 
+        style={{
+          ...styles.container,
+          ...(window.innerWidth >= 1024 ? styles.containerLg : {})
+        }}
+        className="mx-auto flex max-w-6xl flex-col items-start gap-12 px-4 lg:flex-row lg:px-0"
+      >
         {/* Left Side: Text Section */}
-        <div className="flex-1">
-          <h1 className="playfair text-[32px] sm:text-[45px] lg:text-[52px] leading-[1.15] text-[#111111] font-bold">
-            <span className="block">We&apos;re Happy To Help You</span>
-            <span className="block mt-1">
+        <div style={{ flex: 1 }} className="flex-1">
+          <h1 style={styles.heading}>
+            <span style={{ display: 'block' }}>We're Happy To Help You</span>
+            <span style={{ display: 'block', marginTop: '0.25rem' }}>
               Source the Best{" "}
-              <span className="relative inline-flex h-[1.1em] overflow-hidden align-baseline text-[#E79A2D]">
+              <span style={styles.wordWrapper}>
                 <AnimatePresence mode="wait">
                   <motion.span
                     key={currentWordIndex}
-                    variants={wordV}
+                    variants={wordVariants}
                     initial="initial"
                     animate="animate"
                     exit="exit"
-                    className="inline-block"
+                    style={{ display: 'inline-block' }}
                   >
                     {words[currentWordIndex]}
                   </motion.span>
@@ -226,48 +423,68 @@ export default function Hero() {
             </span>
           </h1>
 
-          <p className="mt-6 max-w-lg text-[16px] text-[#4B4B4B] leading-relaxed">
+          <p style={styles.description}>
             A Casa is all set to help you find a dream home in Dubai. Get your
             favourite
-            <span className="font-semibold text-black">
+            <span style={{ fontWeight: 600, color: '#000000' }}>
               {" "}
               Luxury Apartments, Villas, Penthouses, Plot.
             </span>
           </p>
-          <button className="mt-8 rounded-full border border-black px-10 py-3 text-sm font-bold shadow-md hover:bg-black hover:text-white transition-all">
+          <button 
+            style={styles.button}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = '#000000';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = 'transparent';
+              e.target.style.color = '#000000';
+            }}
+          >
             Learn More
           </button>
         </div>
 
         {/* Right Side: Search Card */}
-        <div className="w-full flex-1 lg:max-w-[500px]">
-          <form onSubmit={handleSearch} className="buy-container">
-            <h2 className="mb-6 text-lg font-bold text-[#111111]">
+        <div style={{ width: '100%', flex: 1, maxWidth: '500px' }} className="w-full flex-1 lg:max-w-[500px]">
+          <div style={styles.buyContainer}>
+            <h2 style={{ marginBottom: '1.5rem', fontSize: '18px', fontWeight: 'bold', color: '#111111' }}>
               Search your Favourite Home
             </h2>
 
-            <div className="space-y-4">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {/* Location Input */}
-              <div className="relative z-10">
+              <div ref={dropdownRef} style={{ position: 'relative', zIndex: 10 }}>
                 <Search
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
+                  style={{
+                    position: 'absolute',
+                    left: '14px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af'
+                  }}
                   size={18}
                 />
                 <input
                   type="text"
                   placeholder="Enter project name or location"
                   value={searchData.location}
-                  onClick={() =>
-                    !searchData.location && setShowLocationModal(true)
-                  }
-                  onChange={(e) =>
-                    handleInputChange("location", e.target.value)
-                  }
-                  className={`h-12 w-full rounded border pl-11 pr-4 text-sm transition-all focus:outline-none focus:ring-1 focus:ring-black ${
-                    locationSaved
-                      ? "border-green-500 bg-green-50/30"
-                      : "border-[#E2E2E2]"
-                  }`}
+                  onClick={() => !searchData.location && setShowLocationModal(true)}
+                  onChange={(e) => handleInputChange("location", e.target.value)}
+                  style={{
+                    ...styles.input,
+                    borderColor: locationSaved ? '#22c55e' : '#E2E2E2',
+                    backgroundColor: locationSaved ? 'rgba(34, 197, 94, 0.05)' : '#ffffff'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.outline = '1px solid #000000';
+                    e.target.style.borderColor = '#000000';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.outline = 'none';
+                    e.target.style.borderColor = locationSaved ? '#22c55e' : '#E2E2E2';
+                  }}
                 />
                 <AnimatePresence>
                   {showSuggestions && (
@@ -275,7 +492,18 @@ export default function Hero() {
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 4 }}
-                      className="absolute z-50 mt-1 w-full rounded-lg border bg-white shadow-xl max-h-40 overflow-y-auto"
+                      style={{
+                        position: 'absolute',
+                        zIndex: 50,
+                        marginTop: '4px',
+                        width: '100%',
+                        borderRadius: '8px',
+                        border: '1px solid #e5e7eb',
+                        backgroundColor: '#ffffff',
+                        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+                        maxHeight: '160px',
+                        overflowY: 'auto'
+                      }}
                     >
                       {searchSuggestions.map((loc, i) => (
                         <div
@@ -284,7 +512,13 @@ export default function Hero() {
                             handleInputChange("location", loc);
                             setShowSuggestions(false);
                           }}
-                          className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+                          style={{
+                            padding: '8px 16px',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                          }}
+                          onMouseEnter={(e) => e.target.style.backgroundColor = '#f9fafb'}
+                          onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                         >
                           {loc}
                         </div>
@@ -295,14 +529,33 @@ export default function Hero() {
               </div>
 
               {/* Row: Property Type & Bedrooms */}
-              <div className="grid grid-cols-2 gap-3">
-                {/* Property Type Button (Opens Modal) */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                {/* Property Type Button */}
                 <button
                   type="button"
                   onClick={() => setShowTypeModal(true)}
-                  className="flex h-12 w-full items-center justify-between rounded border border-[#E2E2E2] px-3 text-sm text-[#333] bg-white hover:border-gray-300 transition-colors"
+                  style={{
+                    display: 'flex',
+                    height: '48px',
+                    width: '100%',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderRadius: '6px',
+                    border: '1px solid #E2E2E2',
+                    padding: '0 12px',
+                    fontSize: '14px',
+                    color: '#333333',
+                    backgroundColor: '#ffffff',
+                    cursor: 'pointer'
+                  }}
+                  onMouseEnter={(e) => e.target.style.borderColor = '#d1d5db'}
+                  onMouseLeave={(e) => e.target.style.borderColor = '#E2E2E2'}
                 >
-                  <span className="truncate">
+                  <span style={{ 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    whiteSpace: 'nowrap' 
+                  }}>
                     {selectedTypes.length > 0
                       ? `${selectedTypes.length} selected`
                       : "Property Type"}
@@ -311,13 +564,11 @@ export default function Hero() {
                 </button>
 
                 {/* Bedrooms Select */}
-                <div className="relative">
+                <div style={{ position: 'relative' }}>
                   <select
                     value={searchData.bedrooms}
-                    onChange={(e) =>
-                      handleInputChange("bedrooms", e.target.value)
-                    }
-                    className="h-12 w-full appearance-none rounded border border-[#E2E2E2] bg-white px-3 text-sm focus:outline-none"
+                    onChange={(e) => handleInputChange("bedrooms", e.target.value)}
+                    style={styles.select}
                   >
                     <option value="">Bedrooms</option>
                     <option value="1">1 Bedroom</option>
@@ -326,20 +577,25 @@ export default function Hero() {
                     <option value="4">4+ Bedrooms</option>
                   </select>
                   <ChevronDown
-                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#9ca3af',
+                      pointerEvents: 'none'
+                    }}
                     size={16}
                   />
                 </div>
               </div>
 
               {/* Price Select */}
-              <div className="relative z-0">
+              <div style={{ position: 'relative', zIndex: 0 }}>
                 <select
                   value={searchData.price}
-                  onChange={(e) =>
-                    handleInputChange("price", e.target.value)
-                  }
-                  className="h-12 w-full appearance-none rounded border border-[#E2E2E2] bg-white px-3 text-sm focus:outline-none"
+                  onChange={(e) => handleInputChange("price", e.target.value)}
+                  style={styles.select}
                 >
                   <option value="">Select Price</option>
                   <option value="1m">Under 1M AED</option>
@@ -348,21 +604,32 @@ export default function Hero() {
                   <option value="10m+">10M+ AED</option>
                 </select>
                 <ChevronDown
-                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af',
+                    pointerEvents: 'none'
+                  }}
                   size={16}
                 />
               </div>
 
               {/* Search Button */}
               <button
-                type="submit"
-                className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-black text-sm font-bold text-white shadow-xl transition-all hover:bg-zinc-800 active:scale-[0.98]"
+                onClick={handleSearch}
+                style={styles.searchButton}
+                onMouseEnter={(e) => e.target.style.backgroundColor = '#18181b'}
+                onMouseLeave={(e) => e.target.style.backgroundColor = '#000000'}
+                onMouseDown={(e) => e.target.style.transform = 'scale(0.98)'}
+                onMouseUp={(e) => e.target.style.transform = 'scale(1)'}
               >
                 <Search size={18} />
                 Search your Property
               </button>
             </div>
-          </form>
+          </div>
         </div>
       </div>
     </section>

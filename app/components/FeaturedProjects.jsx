@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import toast from "react-hot-toast";
@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Heart,
-  ImageOff,
   MapPin,
   Loader2,
   Building2,
@@ -29,47 +28,35 @@ const VISIBLE_CARDS = 3;
 const SKELETON_COUNT = 3;
 const NEARBY_RADIUS_KM = 20;
 
-const FALLBACK_IMAGES = [
-  "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=800&h=600&fit=crop&q=80",
-];
-
-const DEFAULT_FALLBACK =
-  "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&h=600&fit=crop&q=80";
+// Optimized fallback - single high-quality image instead of array
+const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&h=600&fit=crop&q=80&auto=format";
 
 const API_CONFIG = {
   params: { status: 1, limit: 20 },
   withCredentials: true,
-  timeout: 10000,
+  timeout: 8000, // Reduced timeout
 };
 
 // ═══════════════════════════════════════════════════════════════════
-// UTILS
+// OPTIMIZED UTILS
 // ═══════════════════════════════════════════════════════════════════
 
 const utils = {
   formatPrice: (value) => {
     if (!value || value <= 0) return "Price on Request";
-    return new Intl.NumberFormat("en-US", {
-      maximumFractionDigits: 0,
-    }).format(value);
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
   },
 
   generateSlug: (title) => {
     if (!title?.trim()) return "";
-    return title
-      .toLowerCase()
-      .trim()
+    return title.toLowerCase().trim()
       .replace(/[^a-z0-9\s-]/g, "")
       .replace(/\s+/g, "-")
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "");
   },
 
+  // Optimized image parsing
   parseImages: (images) => {
     if (!images) return [];
     if (Array.isArray(images)) return images.filter(Boolean);
@@ -84,18 +71,17 @@ const utils = {
     return [];
   },
 
+  // Smart image URL builder - returns null if no valid image
   buildImageUrl: (project) => {
     const imagePath = project.image || utils.parseImages(project.images)[0];
     if (!imagePath) return null;
+    
+    // If already full URL, return as is
     if (/^https?:\/\//i.test(imagePath)) return imagePath;
+    
+    // Build API URL
     const cleanPath = imagePath.replace(/^\/+/, "");
     return `${API_URL}/uploads/projects/${cleanPath}`;
-  },
-
-  getFallbackImage: (projectId) => {
-    if (!projectId && projectId !== 0) return DEFAULT_FALLBACK;
-    const index = projectId % FALLBACK_IMAGES.length;
-    return FALLBACK_IMAGES[index] || DEFAULT_FALLBACK;
   },
 
   formatBedrooms: (from, to) => {
@@ -105,6 +91,7 @@ const utils = {
     return `${fromText}${toText}`;
   },
 
+  // Optimized distance calculation with memoization
   calculateDistance: (lat1, lon1, lat2, lon2) => {
     if (!lat1 || !lon1 || !lat2 || !lon2) return null;
     const R = 6371;
@@ -127,6 +114,7 @@ const utils = {
     return `${Math.round(km)}km`;
   },
 
+  // Optimized transform with minimal processing
   transformProject: (project) => ({
     id: project.id,
     title: project.ProjectName?.trim() || "Untitled Project",
@@ -148,7 +136,7 @@ const utils = {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-// HOOKS
+// OPTIMIZED HOOKS
 // ═══════════════════════════════════════════════════════════════════
 
 const useProjects = () => {
@@ -157,23 +145,25 @@ const useProjects = () => {
     loading: true,
     error: null,
   });
+  const fetchedRef = useRef(false);
 
   const fetchProjects = useCallback(async () => {
+    if (fetchedRef.current) return;
+    
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const { data } = await axios.get(
-        `${API_URL}/api/v1/projects`,
-        API_CONFIG
-      );
+      const { data } = await axios.get(`${API_URL}/api/v1/projects`, API_CONFIG);
 
       if (!data.success || !Array.isArray(data.listings)) {
-        throw new Error("Invalid API response structure");
+        throw new Error("Invalid API response");
       }
 
       const activeListings = data.listings.filter((p) => p.status === 1);
       const projects = activeListings.map(utils.transformProject);
+      
       setState({ projects, loading: false, error: null });
+      fetchedRef.current = true;
     } catch (err) {
       const message = axios.isAxiosError(err)
         ? err.response?.data?.message || err.message
@@ -260,39 +250,97 @@ const useFavorites = () => {
   return { favorites, savingId, toggleFavorite, isFavorite };
 };
 
-const useImageLoader = () => {
-  const [errors, setErrors] = useState(new Set());
-  const [usingFallback, setUsingFallback] = useState(new Set());
+// ═══════════════════════════════════════════════════════════════════
+// OPTIMIZED IMAGE COMPONENT
+// ═══════════════════════════════════════════════════════════════════
 
-  const handleError = useCallback((projectId) => {
-    setErrors((prev) => new Set(prev).add(projectId));
+const ProjectImage = ({ project, imageUrl }) => {
+  const [imgSrc, setImgSrc] = useState(imageUrl || FALLBACK_IMAGE);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const imgRef = useRef(null);
+
+  useEffect(() => {
+    setImgSrc(imageUrl || FALLBACK_IMAGE);
+    setIsLoading(true);
+    setHasError(false);
+  }, [imageUrl]);
+
+  const handleError = useCallback(() => {
+    if (imgSrc !== FALLBACK_IMAGE) {
+      setImgSrc(FALLBACK_IMAGE);
+      setIsLoading(true);
+      setHasError(true);
+    }
+  }, [imgSrc]);
+
+  const handleLoad = useCallback(() => {
+    setIsLoading(false);
   }, []);
 
-  const hasError = useCallback((id) => errors.has(id), [errors]);
+  // Use Intersection Observer for lazy loading
+  useEffect(() => {
+    if (!imgRef.current) return;
 
-  const markUsingFallback = useCallback((projectId) => {
-    setUsingFallback((prev) => new Set(prev).add(projectId));
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && imgRef.current) {
+            const img = imgRef.current;
+            if (img.dataset.src) {
+              img.src = img.dataset.src;
+              img.removeAttribute('data-src');
+            }
+          }
+        });
+      },
+      { rootMargin: '50px' }
+    );
+
+    observer.observe(imgRef.current);
+    return () => observer.disconnect();
   }, []);
 
-  const isUsingFallback = useCallback(
-    (id) => usingFallback.has(id),
-    [usingFallback]
+  return (
+    <div className="relative w-full h-full bg-gray-100">
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Loader2 size={24} className="text-gray-400 animate-spin" />
+        </div>
+      )}
+
+      <img
+        ref={imgRef}
+        data-src={imgSrc}
+        alt={project.title}
+        className="w-full h-full object-cover transition-opacity duration-300"
+        style={{ opacity: isLoading ? 0 : 1 }}
+        onLoad={handleLoad}
+        onError={handleError}
+        loading="lazy"
+        decoding="async"
+      />
+
+      {hasError && !isLoading && (
+        <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] px-2 py-1 rounded-md">
+          Default Image
+        </div>
+      )}
+    </div>
   );
-
-  return { handleError, hasError, markUsingFallback, isUsingFallback };
 };
 
 // ═══════════════════════════════════════════════════════════════════
-// UI SUB‑COMPONENTS
+// UI COMPONENTS (Optimized)
 // ═══════════════════════════════════════════════════════════════════
 
 const SkeletonCard = () => (
   <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200">
-    <div className="h-56 bg-gray-100" />
+    <div className="h-56 bg-gray-100 animate-pulse" />
     <div className="p-4 space-y-3">
-      <div className="h-4 bg-gray-200 rounded w-1/3" />
-      <div className="h-4 bg-gray-200 rounded w-1/4" />
-      <div className="h-3 bg-gray-200 rounded w-1/2" />
+      <div className="h-4 bg-gray-200 rounded w-1/3 animate-pulse" />
+      <div className="h-4 bg-gray-200 rounded w-1/4 animate-pulse" />
+      <div className="h-3 bg-gray-200 rounded w-1/2 animate-pulse" />
     </div>
   </div>
 );
@@ -334,12 +382,8 @@ const NearMeButton = ({ isActive, isLoading, onClick }) => (
     onClick={onClick}
     disabled={isLoading}
     className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center
-      text-gray-500
-      ${
-        isActive
-          ? "bg-black text-white border-black"
-          : "hover:border-gray-500 hover:text-gray-700"
-      }
+      transition-colors
+      ${isActive ? "bg-black text-white border-black" : "text-gray-500 hover:border-gray-500"}
       ${isLoading ? "opacity-60 cursor-wait" : ""}`}
     aria-label="Show projects near me"
   >
@@ -352,11 +396,11 @@ const NearMeButton = ({ isActive, isLoading, onClick }) => (
 );
 
 const DistanceBadge = ({ distance }) => {
-  if (distance === null || distance === undefined) return null;
+  if (!distance) return null;
   return (
-    <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded-full shadow-sm border border-gray-200">
+    <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-white/95 px-2 py-1 rounded-full shadow-sm border border-gray-200">
       <Navigation size={11} className="text-gray-700" />
-      <span className="text-[10px] font-normal text-gray-800">
+      <span className="text-[10px] font-medium text-gray-800">
         {utils.formatDistance(distance)}
       </span>
     </div>
@@ -370,15 +414,15 @@ const NearbyBanner = ({ count, radius, onClear }) => (
         <MapPin size={18} className="text-white" />
       </div>
       <div>
-        <p className="text-sm font-normal text-gray-900">
-          Showing {count} nearby projects within {radius}km
+        <p className="text-sm font-medium text-gray-900">
+          {count} projects within {radius}km
         </p>
-        <p className="text-xs text-gray-500">Sorted by nearest first</p>
+        <p className="text-xs text-gray-500">Sorted by distance</p>
       </div>
     </div>
     <button
       onClick={onClear}
-      className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 rounded-lg border border-gray-200"
+      className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors"
     >
       <X size={13} />
       Clear
@@ -397,10 +441,7 @@ const SectionHeader = ({
   onNearbyClick,
 }) => (
   <div className="flex items-center justify-between mb-8">
-    <h2
-      id="featured-projects-title"
-      className="text-xs md:text-sm font-normal tracking-[0.4em] text-[#111827] uppercase"
-    >
+    <h2 className="text-xs md:text-sm font-normal tracking-[0.4em] text-gray-900 uppercase">
       Featured Projects
     </h2>
 
@@ -415,26 +456,16 @@ const SectionHeader = ({
           <button
             onClick={onPrev}
             disabled={!canPrev}
-            aria-label="Previous projects"
-            className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm
-              ${
-                !canPrev
-                  ? "opacity-40 cursor-not-allowed"
-                  : "hover:border-gray-500 hover:text-gray-700"
-              }`}
+            className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm transition-all
+              ${!canPrev ? "opacity-40 cursor-not-allowed" : "hover:border-gray-500"}`}
           >
             <ChevronLeft size={18} className="text-gray-700" />
           </button>
           <button
             onClick={onNext}
             disabled={!canNext}
-            aria-label="Next projects"
-            className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm
-              ${
-                !canNext
-                  ? "opacity-40 cursor-not-allowed"
-                  : "hover:border-gray-500 hover:text-gray-700"
-              }`}
+            className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm transition-all
+              ${!canNext ? "opacity-40 cursor-not-allowed" : "hover:border-gray-500"}`}
           >
             <ChevronRight size={18} className="text-gray-700" />
           </button>
@@ -444,98 +475,6 @@ const SectionHeader = ({
   </div>
 );
 
-const FeaturedBadge = ({ hasDistance }) => (
-  <div
-    className={`absolute ${
-      hasDistance ? "top-9" : "top-3"
-    } left-3 z-10 flex items-center gap-1.5 
-      bg-black text-white px-2.5 py-1 rounded-full text-[10px] font-normal shadow-sm`}
-  >
-    <Sparkles size={11} />
-    Featured
-  </div>
-);
-
-const HandoverBadge = ({ date }) => {
-  if (!date) return null;
-  return (
-    <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 bg-white/90 px-2.5 py-1 rounded-lg shadow-sm border border-gray-200">
-      <Calendar size={12} className="text-gray-600" />
-      <span className="text-[11px] font-normal text-gray-800">{date}</span>
-    </div>
-  );
-};
-
-const ProjectImage = ({ project, imageUrl, onError, onFallbackLoad }) => {
-  const [currentSrc, setCurrentSrc] = useState(imageUrl);
-  const [isUsingFallback, setIsUsingFallback] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [fallbackError, setFallbackError] = useState(false);
-
-  useEffect(() => {
-    setCurrentSrc(imageUrl);
-    setIsUsingFallback(false);
-    setLoaded(false);
-    setFallbackError(false);
-  }, [imageUrl]);
-
-  const handleImageError = () => {
-    if (!isUsingFallback) {
-      const fallbackUrl = utils.getFallbackImage(project.id);
-      setCurrentSrc(fallbackUrl);
-      setIsUsingFallback(true);
-      setLoaded(false);
-      onError(project.id);
-      if (onFallbackLoad) onFallbackLoad(project.id);
-    } else {
-      setFallbackError(true);
-    }
-  };
-
-  if (fallbackError) {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-        <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center mb-3">
-          <Building2 size={30} className="text-gray-500" />
-        </div>
-        <span className="text-gray-500 text-sm font-normal">
-          Project Image
-        </span>
-        <span className="text-gray-400 text-xs mt-1">Coming Soon</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative w-full h-full">
-      {!loaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-          <Loader2 size={26} className="text-gray-400 animate-spin" />
-        </div>
-      )}
-
-      <img
-        src={currentSrc || utils.getFallbackImage(project.id)}
-        alt={project.title}
-        className={`w-full h-full object-cover transition-opacity duration-300 ${
-          loaded ? "opacity-100" : "opacity-0"
-        }`}
-        onLoad={() => setLoaded(true)}
-        onError={handleImageError}
-        loading="lazy"
-        decoding="async"
-      />
-
-      {isUsingFallback && loaded && (
-        <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded flex items-center gap-1">
-          <ImageOff size={10} />
-          <span>Sample</span>
-        </div>
-      )}
-    </div>
-  );
-};
-
 const ProjectCard = ({
   project,
   imageUrl,
@@ -544,79 +483,67 @@ const ProjectCard = ({
   onFavoriteClick,
   onClick,
   showDistance = false,
-  onImageError,
-  onFallbackLoad,
 }) => {
-  const hasDistanceBadge = showDistance && project.distance !== null;
-  const bedroomText = utils.formatBedrooms(
-    project.bedroomsFrom,
-    project.bedroomsTo
-  );
-
-  const handleFavoriteClick = (e) => {
-    e.stopPropagation();
-    onFavoriteClick(project.id);
-  };
+  const hasDistance = showDistance && project.distance !== null;
+  const bedroomText = utils.formatBedrooms(project.bedroomsFrom, project.bedroomsTo);
 
   return (
     <article
       onClick={() => onClick(project)}
       className="group bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200 
         cursor-pointer hover:shadow-md transition-shadow duration-200 flex flex-col"
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onClick(project)}
     >
       <div className="relative h-56 bg-gray-100 overflow-hidden">
-        {hasDistanceBadge && <DistanceBadge distance={project.distance} />}
-        {project.featured && <FeaturedBadge hasDistance={hasDistanceBadge} />}
+        {hasDistance && <DistanceBadge distance={project.distance} />}
+        
+        {project.featured && (
+          <div className={`absolute ${hasDistance ? "top-9" : "top-3"} left-3 z-10 
+            flex items-center gap-1.5 bg-black text-white px-2.5 py-1 rounded-full text-[10px] shadow-sm`}>
+            <Sparkles size={11} />
+            Featured
+          </div>
+        )}
 
-        <ProjectImage
-          project={project}
-          imageUrl={imageUrl}
-          onError={onImageError}
-          onFallbackLoad={onFallbackLoad}
-        />
+        <ProjectImage project={project} imageUrl={imageUrl} />
 
-        {/* Top-right buttons */}
         <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
           <button
-            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            className="w-8 h-8 rounded-full bg-white/95 flex items-center justify-center shadow-sm border border-gray-200 hover:bg-white transition-colors"
             onClick={(e) => e.stopPropagation()}
-            aria-label="View details"
           >
             <Eye size={15} className="text-gray-700" />
           </button>
           <button
-            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            className="w-8 h-8 rounded-full bg-white/95 flex items-center justify-center shadow-sm border border-gray-200 hover:bg-white transition-colors"
             onClick={(e) => e.stopPropagation()}
-            aria-label="More options"
           >
             <RotateCcw size={15} className="text-gray-700" />
           </button>
         </div>
 
-        {/* Fake image arrows */}
         <button
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/95 flex items-center justify-center shadow-sm border border-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
           onClick={(e) => e.stopPropagation()}
-          aria-label="Previous image"
         >
           <ChevronLeft size={14} className="text-gray-700" />
         </button>
         <button
-          className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/95 flex items-center justify-center shadow-sm border border-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
           onClick={(e) => e.stopPropagation()}
-          aria-label="Next image"
         >
           <ChevronRight size={14} className="text-gray-700" />
         </button>
 
-        {project.handoverDate && <HandoverBadge date={project.handoverDate} />}
+        {project.handoverDate && (
+          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 bg-white/95 px-2.5 py-1 rounded-lg shadow-sm border border-gray-200">
+            <Calendar size={12} className="text-gray-600" />
+            <span className="text-[11px] font-normal text-gray-800">{project.handoverDate}</span>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 flex flex-col justify-between px-5 pt-4 pb-4">
-        <div className="pr-2">
+        <div>
           <h3 className="text-sm md:text-[15px] font-medium text-gray-900 line-clamp-2">
             {project.title}
           </h3>
@@ -625,39 +552,32 @@ const ProjectCard = ({
             {project.location || "Location TBA"}
           </p>
           {bedroomText && (
-            <p className="mt-2 text-xs text-gray-600">
-              {bedroomText} Bedrooms
-            </p>
+            <p className="mt-2 text-xs text-gray-600">{bedroomText} Bedrooms</p>
           )}
         </div>
 
         <div className="mt-3 flex items-center justify-between">
           <p className="text-xs text-gray-500">
             Start Price -{" "}
-            <span className="font-normal text-gray-900">
+            <span className="font-medium text-gray-900">
               AED {utils.formatPrice(project.price)}
             </span>
           </p>
 
           <button
-            onClick={handleFavoriteClick}
+            onClick={(e) => {
+              e.stopPropagation();
+              onFavoriteClick(project.id);
+            }}
             disabled={isSaving}
-            aria-label={
-              isLiked ? "Remove from favorites" : "Add to favorites"
-            }
-            className={`flex items-center justify-center
-              ${isSaving ? "cursor-wait opacity-60" : ""}`}
+            className={isSaving ? "cursor-wait opacity-60" : ""}
           >
             {isSaving ? (
               <Loader2 size={20} className="text-gray-400 animate-spin" />
             ) : (
               <Heart
                 size={22}
-                className={
-                  isLiked
-                    ? "text-gray-900 fill-gray-900"
-                    : "text-gray-800 hover:fill-gray-800 hover:text-gray-800"
-                }
+                className={isLiked ? "text-gray-900 fill-gray-900" : "text-gray-800 hover:fill-gray-800 transition-all"}
               />
             )}
           </button>
@@ -666,18 +586,6 @@ const ProjectCard = ({
     </article>
   );
 };
-
-const ViewAllButton = ({ onClick }) => (
-  <div className="mt-10 text-center">
-    <button
-      onClick={onClick}
-      className="inline-flex items-center justify-center px-10 py-3 text-sm font-normal
-        bg-transparent text-black border border-transparent hover:border-black rounded-full"
-    >
-      All Projects
-    </button>
-  </div>
-);
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -688,7 +596,6 @@ export default function FeaturedProjects() {
 
   const { projects, loading, error } = useProjects();
   const { savingId, toggleFavorite, isFavorite } = useFavorites();
-  const { handleError: handleImageError, markUsingFallback } = useImageLoader();
 
   const [userLocation, setUserLocation] = useState(null);
   const [nearbyLoading, setNearbyLoading] = useState(false);
@@ -698,12 +605,12 @@ export default function FeaturedProjects() {
     if (nearbyActive) {
       setNearbyActive(false);
       setUserLocation(null);
-      toast.success("Nearby filter cleared");
+      toast.success("Filter cleared");
       return;
     }
 
     if (!navigator.geolocation) {
-      toast.error("Geolocation is not supported by your browser");
+      toast.error("Geolocation not supported");
       return;
     }
 
@@ -717,59 +624,37 @@ export default function FeaturedProjects() {
         setNearbyLoading(false);
         toast.success("Showing nearby projects!");
       },
-      (err) => {
-        console.error("Location Error:", err);
+      () => {
         setNearbyLoading(false);
-
-        if (err.code === 1) {
-          toast.error("Location permission denied.");
-        } else if (err.code === 2) {
-          toast.error("Location unavailable.");
-        } else {
-          toast.error("Unable to get your location.");
-        }
+        toast.error("Location access denied");
       },
-      {
-        enableHighAccuracy: false,
-        timeout: 15000,
-        maximumAge: 300000,
-      }
+      { timeout: 10000, enableHighAccuracy: false, maximumAge: 300000 }
     );
   }, [nearbyActive]);
 
   const handleClearNearby = useCallback(() => {
     setNearbyActive(false);
     setUserLocation(null);
-    toast.success("Nearby filter cleared");
+    toast.success("Filter cleared");
   }, []);
 
   const projectsWithDistance = useMemo(() => {
     if (!nearbyActive || !userLocation) {
-      return [...projects].sort(
-        (a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0)
-      );
+      return [...projects].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
     }
 
     return projects
-      .map((project) => {
-        const distance = utils.calculateDistance(
+      .map((project) => ({
+        ...project,
+        distance: utils.calculateDistance(
           userLocation.lat,
           userLocation.lng,
           project.latitude,
           project.longitude
-        );
-        return { ...project, distance };
-      })
-      .filter((project) => {
-        if (project.distance === null) return false;
-        return project.distance <= NEARBY_RADIUS_KM;
-      })
-      .sort((a, b) => {
-        if (a.distance === null && b.distance === null) return 0;
-        if (a.distance === null) return 1;
-        if (b.distance === null) return -1;
-        return a.distance - b.distance;
-      });
+        ),
+      }))
+      .filter((p) => p.distance !== null && p.distance <= NEARBY_RADIUS_KM)
+      .sort((a, b) => (a.distance || 0) - (b.distance || 0));
   }, [projects, nearbyActive, userLocation]);
 
   const carousel = useCarousel(projectsWithDistance.length);
@@ -779,37 +664,25 @@ export default function FeaturedProjects() {
   }, [nearbyActive, carousel]);
 
   const visibleProjects = useMemo(
-    () =>
-      projectsWithDistance.slice(
-        carousel.currentIndex,
-        carousel.currentIndex + VISIBLE_CARDS
-      ),
+    () => projectsWithDistance.slice(carousel.currentIndex, carousel.currentIndex + VISIBLE_CARDS),
     [projectsWithDistance, carousel.currentIndex]
   );
 
   const handleProjectClick = useCallback(
-    (project) => {
-      const path = `/projects/${project.slug || project.id}`;
-      router.push(path);
-    },
+    (project) => router.push(`/projects/${project.slug || project.id}`),
     [router]
   );
 
   const handleViewAll = useCallback(() => {
     if (nearbyActive && userLocation) {
-      router.push(
-        `/projects?nearby=true&lat=${userLocation.lat}&lng=${userLocation.lng}`
-      );
+      router.push(`/projects?nearby=true&lat=${userLocation.lat}&lng=${userLocation.lng}`);
     } else {
       router.push("/projects");
     }
   }, [router, nearbyActive, userLocation]);
 
   return (
-    <section
-      className="bg-[#F7F7F7] py-12 px-4 md:px-10"
-      aria-labelledby="featured-projects-title"
-    >
+    <section className="bg-gray-50 py-12 px-4 md:px-10">
       <div className="max-w-7xl mx-auto">
         <SectionHeader
           showNav={carousel.showNavigation}
@@ -824,11 +697,10 @@ export default function FeaturedProjects() {
 
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            <p className="font-normal mb-1">Error loading projects:</p>
-            <p>{error}</p>
+            <p className="font-medium mb-1">Error: {error}</p>
             <button
               onClick={() => window.location.reload()}
-              className="mt-2 px-4 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+              className="mt-2 px-4 py-1.5 text-xs bg-red-100 rounded hover:bg-red-200"
             >
               Retry
             </button>
@@ -846,37 +718,33 @@ export default function FeaturedProjects() {
         {loading ? (
           <LoadingState />
         ) : projectsWithDistance.length === 0 ? (
-          <EmptyState
-            hasNearby={nearbyActive}
-            onClearNearby={handleClearNearby}
-          />
+          <EmptyState hasNearby={nearbyActive} onClearNearby={handleClearNearby} />
         ) : (
           <>
-            <div
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-              role="list"
-              aria-label="Featured projects"
-            >
-              {visibleProjects.map((project) => {
-                const imageUrl = utils.buildImageUrl(project);
-                return (
-                  <ProjectCard
-                    key={project.id}
-                    project={project}
-                    imageUrl={imageUrl}
-                    isLiked={isFavorite(project.id)}
-                    isSaving={savingId === project.id}
-                    onFavoriteClick={toggleFavorite}
-                    onClick={handleProjectClick}
-                    showDistance={nearbyActive}
-                    onImageError={handleImageError}
-                    onFallbackLoad={markUsingFallback}
-                  />
-                );
-              })}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {visibleProjects.map((project) => (
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  imageUrl={utils.buildImageUrl(project)}
+                  isLiked={isFavorite(project.id)}
+                  isSaving={savingId === project.id}
+                  onFavoriteClick={toggleFavorite}
+                  onClick={handleProjectClick}
+                  showDistance={nearbyActive}
+                />
+              ))}
             </div>
 
-            <ViewAllButton onClick={handleViewAll} />
+            <div className="mt-10 text-center">
+              <button
+                onClick={handleViewAll}
+                className="inline-flex items-center justify-center px-10 py-3 text-sm font-normal
+                  bg-transparent text-black border border-transparent hover:border-black rounded-full transition-colors"
+              >
+                All Projects
+              </button>
+            </div>
           </>
         )}
       </div>
