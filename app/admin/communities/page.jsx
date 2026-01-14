@@ -13,6 +13,8 @@ import {
   ChevronDown,
   MapPin,
   AlertCircle,
+  Check,
+  Image as ImageIcon,
 } from "lucide-react";
 import { Toaster, toast } from "react-hot-toast";
 import TextEditor from "../../components/common/SimpleTextEditor";
@@ -423,6 +425,29 @@ const useCommunityApi = () => {
     }
   }, []);
 
+  const bulkDelete = useCallback(async (ids) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/communities/bulk/delete`, {
+        method: "POST",
+        headers: createAuthHeaders(true),
+        body: JSON.stringify({ ids }),
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        showSuccess(`${ids.length} communities deleted successfully!`);
+        return { success: true };
+      } else {
+        showError(data.message || "Failed to delete communities");
+        return { success: false };
+      }
+    } catch (error) {
+      console.error("Bulk delete error:", error);
+      showError("Failed to delete communities");
+      return { success: false };
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
@@ -441,32 +466,325 @@ const useCommunityApi = () => {
     updateCommunity,
     deleteCommunity,
     updateStatus,
+    bulkDelete,
   };
 };
 
 // ==================== SUB COMPONENTS ====================
-const CommunityImage = React.memo(({ src, alt }) => {
+const CommunityImage = React.memo(({ src, alt, className = "" }) => {
   const [imageError, setImageError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(true);
 
   if (!src || imageError) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-gray-100">
-        <MapPin className="w-4 h-4 text-gray-400" />
+      <div className={`w-full h-full flex items-center justify-center bg-gray-100 ${className}`}>
+        <ImageIcon className="w-6 h-6 text-gray-400" />
       </div>
     );
   }
 
   return (
-    <img
-      src={getImageUrl(src)}
-      alt={alt || "Community"}
-      className="w-full h-full object-cover"
-      onError={() => setImageError(true)}
-    />
+    <div className={`relative w-full h-full ${className}`}>
+      {imageLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+        </div>
+      )}
+      <img
+        src={getImageUrl(src)}
+        alt={alt || "Community"}
+        className={`w-full h-full object-cover transition-opacity duration-200 ${imageLoading ? 'opacity-0' : 'opacity-100'}`}
+        onLoad={() => setImageLoading(false)}
+        onError={() => {
+          setImageError(true);
+          setImageLoading(false);
+        }}
+      />
+    </div>
   );
 });
 
 CommunityImage.displayName = "CommunityImage";
+
+// Delete Confirmation Modal
+const DeleteModal = React.memo(({ isOpen, onClose, onConfirm, loading, title, message }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <div className="p-6">
+          <p className="text-gray-600 mb-6">{message}</p>
+          <div className="flex items-center gap-3 justify-end">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={loading}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+DeleteModal.displayName = "DeleteModal";
+
+// View Modal
+const ViewModal = React.memo(({ community, onClose }) => {
+  if (!community) return null;
+
+  const statusInfo = isStatusActive(community.status) ? STATUS_OPTIONS[0] : STATUS_OPTIONS[1];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[90vh] overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h3 className="text-lg font-semibold text-gray-800">{community?.name}</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="md:col-span-1">
+              <div className="w-full h-32 rounded border border-gray-200 overflow-hidden bg-gray-100">
+                <CommunityImage src={community?.img} alt={community?.name} />
+              </div>
+            </div>
+            <div className="md:col-span-2 space-y-2 text-sm">
+              <p><span className="font-medium text-gray-600">ID:</span> {community?.id}</p>
+              <p><span className="font-medium text-gray-600">Name:</span> {community?.name}</p>
+              <p><span className="font-medium text-gray-600">City:</span> {getCityName(community?.city_id)}</p>
+              <p><span className="font-medium text-gray-600">Country:</span> {getCountryName(community?.country_id)}</p>
+              <p><span className="font-medium text-gray-600">Slug:</span> {community?.slug}</p>
+              {community?.latitude && community?.longitude && (
+                <p>
+                  <span className="font-medium text-gray-600">Coordinates:</span>{" "}
+                  {community.latitude}, {community.longitude}
+                </p>
+              )}
+              <p>
+                <span className="font-medium text-gray-600">Status:</span>{" "}
+                <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${statusInfo.color}`}>
+                  {statusInfo.label}
+                </span>
+              </p>
+              <p>
+                <span className="font-medium text-gray-600">Featured:</span>{" "}
+                {community?.featured ? "Yes" : "No"}
+              </p>
+              <p>
+                <span className="font-medium text-gray-600">Top Community:</span>{" "}
+                {community?.top_community ? "Yes" : "No"}
+              </p>
+            </div>
+          </div>
+
+          {community?.description && (
+            <div className="border-t pt-4 mt-4">
+              <h4 className="font-medium text-gray-800 mb-2">Description</h4>
+              <div
+                className="text-sm text-gray-600 prose prose-sm max-w-none"
+                dangerouslySetInnerHTML={{ __html: community.description }}
+              />
+            </div>
+          )}
+
+          {(community?.seo_title || community?.seo_description || community?.seo_keyword) && (
+            <div className="border-t pt-4 mt-4">
+              <h4 className="font-medium text-gray-800 mb-2">SEO Information</h4>
+              <div className="space-y-2 text-sm">
+                {community?.seo_title && (
+                  <p><span className="font-medium text-gray-600">Title:</span> {community.seo_title}</p>
+                )}
+                {community?.seo_description && (
+                  <p><span className="font-medium text-gray-600">Description:</span> {community.seo_description}</p>
+                )}
+                {community?.seo_keyword && (
+                  <p><span className="font-medium text-gray-600">Keywords:</span> {community.seo_keyword}</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+ViewModal.displayName = "ViewModal";
+
+// Quick Add Modal
+const QuickAddModal = React.memo(({ isOpen, onClose, onSubmit, loading }) => {
+  const [modalData, setModalData] = useState(INITIAL_MODAL_STATE);
+
+  const handleChange = (field, value) => {
+    setModalData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!modalData.city_id) {
+      showError("Please select a city");
+      return;
+    }
+    if (!modalData.name.trim()) {
+      showError("Community name is required");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("country_id", "1");
+    formData.append("city_id", modalData.city_id);
+    formData.append("name", modalData.name.trim());
+    formData.append("status", "active");
+
+    const success = await onSubmit(formData);
+    if (success) {
+      setModalData(INITIAL_MODAL_STATE);
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h3 className="text-lg font-semibold text-gray-800">Quick Add Community</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Select City <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={modalData.city_id}
+              onChange={(e) => handleChange("city_id", e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">Select City</option>
+              {UAE_CITIES.map((city) => (
+                <option key={city.id} value={city.id}>
+                  {city.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Community Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={modalData.name}
+              onChange={(e) => handleChange("name", e.target.value)}
+              placeholder="Enter community name"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-3 justify-end pt-4 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded hover:opacity-90 disabled:opacity-50"
+            >
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+});
+
+QuickAddModal.displayName = "QuickAddModal";
+
+// Column Selector Modal
+const ColumnSelectorModal = React.memo(({ isOpen, onClose, visibleColumns, onToggle }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl border border-gray-300">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+          <h3 className="text-sm font-medium text-gray-800">Show / Hide Column in Listing</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X className="w-4 h-4 text-gray-500" />
+          </button>
+        </div>
+        <div className="p-4">
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {ALL_COLUMNS.map((col) => (
+              <label
+                key={col.id}
+                className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900"
+              >
+                <input
+                  type="checkbox"
+                  checked={visibleColumns.has(col.id)}
+                  onChange={() => onToggle(col.id)}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>{col.label}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                onClose();
+                showSuccess("Columns updated successfully");
+              }}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+ColumnSelectorModal.displayName = "ColumnSelectorModal";
 
 // ==================== MAIN COMPONENT ====================
 export default function CommunitiesScreen() {
@@ -484,7 +802,6 @@ export default function CommunitiesScreen() {
   const [editId, setEditId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [modalData, setModalData] = useState(INITIAL_MODAL_STATE);
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
   const [showCount, setShowCount] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
@@ -494,7 +811,7 @@ export default function CommunitiesScreen() {
   const [showOverviewDropdown, setShowOverviewDropdown] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleteLoading, setDeleteLoading] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
@@ -509,6 +826,7 @@ export default function CommunitiesScreen() {
     updateCommunity,
     deleteCommunity,
     updateStatus,
+    bulkDelete,
   } = useCommunityApi();
 
   const fileUpload = useFileUpload();
@@ -626,10 +944,6 @@ export default function CommunitiesScreen() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   }, []);
 
-  const handleModalChange = useCallback((field, value) => {
-    setModalData((prev) => ({ ...prev, [field]: value }));
-  }, []);
-
   const resetForm = useCallback(() => {
     setFormData(INITIAL_FORM_STATE);
     fileUpload.resetFiles();
@@ -654,18 +968,6 @@ export default function CommunitiesScreen() {
     return true;
   }, [formData]);
 
-  const validateModalForm = useCallback(() => {
-    if (!modalData.city_id) {
-      showError("Please select a city");
-      return false;
-    }
-    if (!modalData.name.trim()) {
-      showError("Community name is required");
-      return false;
-    }
-    return true;
-  }, [modalData]);
-
   // ==================== SUBMIT HANDLERS ====================
   const handleMainSave = useCallback(
     async (e) => {
@@ -685,23 +987,33 @@ export default function CommunitiesScreen() {
       try {
         const formDataToSend = new FormData();
 
+        // Required fields
         formDataToSend.append("name", formData.name.trim());
-        formDataToSend.append("country_id", formData.country_id);
-        formDataToSend.append("city_id", formData.city_id);
+        formDataToSend.append("country_id", formData.country_id.toString());
+        formDataToSend.append("city_id", formData.city_id.toString());
         formDataToSend.append("status", formData.status);
 
+        // Optional fields
         if (formData.latitude) formDataToSend.append("latitude", formData.latitude);
         if (formData.longitude) formDataToSend.append("longitude", formData.longitude);
         if (formData.description) formDataToSend.append("description", formData.description);
         if (formData.seo_title) formDataToSend.append("seo_title", formData.seo_title);
         if (formData.seo_description) formDataToSend.append("seo_description", formData.seo_description);
-        if (formData.seo_keyword) formDataToSend.append("seo_keywork", formData.seo_keyword);
+        if (formData.seo_keyword) formDataToSend.append("seo_keyword", formData.seo_keyword);
 
-        formDataToSend.append("featured", formData.featured ? 1 : 0);
-        formDataToSend.append("top_community", formData.top_community ? 1 : 0);
+        // Boolean fields
+        formDataToSend.append("featured", formData.featured ? "true" : "false");
+        formDataToSend.append("top_community", formData.top_community ? "true" : "false");
 
+        // Image file
         if (fileUpload.imageFile) {
           formDataToSend.append("img", fileUpload.imageFile);
+        }
+
+        // Debug log
+        console.log("📤 Sending form data:");
+        for (let [key, value] of formDataToSend.entries()) {
+          console.log(`  ${key}: ${value instanceof File ? value.name : value}`);
         }
 
         const result = editMode
@@ -712,51 +1024,56 @@ export default function CommunitiesScreen() {
 
         if (result.success) {
           resetForm();
-          fetchCommunities(pagination.currentPage);
+          fetchCommunities(currentPage, showCount, { search: searchTerm });
         }
+      } catch (error) {
+        toast.dismiss(saveToast);
+        console.error("Save error:", error);
+        showError(error.message || "Failed to save community");
       } finally {
         setSubmitLoading(false);
       }
     },
-    [formData, fileUpload.imageFile, editMode, editId, validateMainForm, createCommunity, updateCommunity, resetForm, fetchCommunities, pagination.currentPage]
+    [
+      formData,
+      fileUpload.imageFile,
+      editMode,
+      editId,
+      validateMainForm,
+      createCommunity,
+      updateCommunity,
+      resetForm,
+      fetchCommunities,
+      currentPage,
+      showCount,
+      searchTerm,
+    ]
   );
 
-  const handleModalSave = useCallback(
-    async (e) => {
-      e.preventDefault();
-      if (!validateModalForm()) return;
-
-      if (!isAdminTokenValid()) {
-        showError("Session expired. Please login again.");
-        logoutAll();
-        fastNavigate("/admin/login");
-        return;
-      }
-
+  const handleQuickAdd = useCallback(
+    async (formData) => {
       setSubmitLoading(true);
       const saveToast = showLoading("Creating community...");
 
       try {
-        const formDataToSend = new FormData();
-        formDataToSend.append("country_id", 1);
-        formDataToSend.append("city_id", modalData.city_id);
-        formDataToSend.append("name", modalData.name.trim());
-        formDataToSend.append("status", "active");
-
-        const result = await createCommunity(formDataToSend);
-
+        const result = await createCommunity(formData);
         toast.dismiss(saveToast);
 
         if (result.success) {
-          setShowQuickAddModal(false);
-          setModalData(INITIAL_MODAL_STATE);
-          fetchCommunities(1);
+          fetchCommunities(1, showCount);
+          return true;
         }
+        return false;
+      } catch (error) {
+        toast.dismiss(saveToast);
+        console.error("Quick add error:", error);
+        showError(error.message || "Failed to create community");
+        return false;
       } finally {
         setSubmitLoading(false);
       }
     },
-    [modalData, validateModalForm, createCommunity, fetchCommunities]
+    [createCommunity, fetchCommunities, showCount]
   );
 
   // ==================== CRUD HANDLERS ====================
@@ -774,11 +1091,11 @@ export default function CommunitiesScreen() {
           latitude: community.latitude || "",
           seo_title: community.seo_title || "",
           seo_description: community.seo_description || "",
-          seo_keyword: community.seo_keyword || community.seo_keywork || "",
+          seo_keyword: community.seo_keyword || "",
           description: community.description || "",
           status: normalizeStatus(community.status),
-          featured: community.featured === 1 || community.featured === true,
-          top_community: community.top_community === 1 || community.top_community === true,
+          featured: community.featured === true || community.featured === 1,
+          top_community: community.top_community === true || community.top_community === 1,
         });
         fileUpload.setPreviewsFromCommunity(community);
         setEditMode(true);
@@ -790,50 +1107,85 @@ export default function CommunitiesScreen() {
     [fetchCommunityById, fileUpload]
   );
 
-  const handleDelete = async (id) => {
-    const deleteToast = showLoading("Deleting community...");
-    try {
-      setDeleteLoading(id);
-      const result = await deleteCommunity(id);
+  const handleDeleteClick = useCallback((community) => {
+    setDeleteTarget(community);
+    setShowDeleteModal(true);
+  }, []);
 
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteTarget) return;
+
+    setDeleteLoading(true);
+    const deleteToast = showLoading("Deleting community...");
+
+    try {
+      const result = await deleteCommunity(deleteTarget.id);
       toast.dismiss(deleteToast);
 
       if (result.success) {
-        fetchCommunities(pagination.currentPage);
+        fetchCommunities(currentPage, showCount, { search: searchTerm });
         setShowDeleteModal(false);
         setDeleteTarget(null);
       }
+    } catch (error) {
+      toast.dismiss(deleteToast);
+      console.error("Delete error:", error);
     } finally {
-      setDeleteLoading(null);
+      setDeleteLoading(false);
     }
-  };
+  }, [deleteTarget, deleteCommunity, fetchCommunities, currentPage, showCount, searchTerm]);
 
-  const handleDeleteConfirm = () => {
-    if (!deleteTarget) return;
-    handleDelete(deleteTarget.id);
-  };
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) {
+      showError("Please select communities to delete");
+      return;
+    }
+
+    setDeleteLoading(true);
+    const deleteToast = showLoading(`Deleting ${selectedIds.size} communities...`);
+
+    try {
+      const result = await bulkDelete(Array.from(selectedIds));
+      toast.dismiss(deleteToast);
+
+      if (result.success) {
+        setSelectedIds(new Set());
+        fetchCommunities(1, showCount);
+        setShowDeleteModal(false);
+      }
+    } catch (error) {
+      toast.dismiss(deleteToast);
+      console.error("Bulk delete error:", error);
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [selectedIds, bulkDelete, fetchCommunities, showCount]);
 
   const handleStatusUpdate = useCallback(
     async (id, newStatus) => {
       const updateToast = showLoading("Updating status...");
       const result = await updateStatus(id, newStatus);
       toast.dismiss(updateToast);
+
       if (result.success) {
-        fetchCommunities(pagination.currentPage);
+        fetchCommunities(currentPage, showCount, { search: searchTerm });
       }
     },
-    [updateStatus, fetchCommunities, pagination.currentPage]
+    [updateStatus, fetchCommunities, currentPage, showCount, searchTerm]
   );
 
   const handleRefresh = useCallback(() => {
     setSearchTerm("");
     setSelectedIds(new Set());
-    fetchCommunities(1);
-  }, [fetchCommunities]);
+    setCurrentPage(1);
+    fetchCommunities(1, showCount);
+  }, [fetchCommunities, showCount]);
 
+  // ==================== EFFECTS ====================
   // Search effect
   useEffect(() => {
-    if (isAuthenticated && debouncedSearchTerm !== undefined) {
+    if (isAuthenticated) {
+      setCurrentPage(1);
       fetchCommunities(1, showCount, { search: debouncedSearchTerm });
     }
   }, [debouncedSearchTerm, isAuthenticated, showCount]);
@@ -841,9 +1193,16 @@ export default function CommunitiesScreen() {
   // Initial fetch
   useEffect(() => {
     if (isAuthenticated) {
-      fetchCommunities(1);
+      fetchCommunities(1, showCount);
     }
   }, [isAuthenticated]);
+
+  // Page change effect
+  useEffect(() => {
+    if (isAuthenticated && currentPage > 1) {
+      fetchCommunities(currentPage, showCount, { search: searchTerm });
+    }
+  }, [currentPage]);
 
   // ==================== UTILITY FUNCTIONS ====================
   const getStatusInfo = (status) => {
@@ -881,17 +1240,13 @@ export default function CommunitiesScreen() {
     });
   };
 
-  // ==================== FILTERED DATA ====================
-  const filteredCommunities = useMemo(() => {
-    return (communities || []).filter((c) => c && c.id);
-  }, [communities]);
+  // ==================== PAGINATION ====================
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
-  const paginatedCommunities = useMemo(() => {
-    const start = (currentPage - 1) * showCount;
-    return filteredCommunities.slice(start, start + showCount);
-  }, [filteredCommunities, currentPage, showCount]);
-
-  const totalPages = Math.ceil(filteredCommunities.length / showCount);
+  const totalPages = pagination.totalPages || 1;
 
   // ==================== LOADING STATE ====================
   if (authLoading) {
@@ -902,9 +1257,7 @@ export default function CommunitiesScreen() {
           <div className="relative">
             <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
           </div>
-          <p className="mt-4 text-gray-600 font-medium">
-            Verifying authentication...
-          </p>
+          <p className="mt-4 text-gray-600 font-medium">Verifying authentication...</p>
         </div>
       </div>
     );
@@ -923,38 +1276,8 @@ export default function CommunitiesScreen() {
         toastOptions={{
           duration: 4000,
           style: {
-            background: '#363636',
-            color: '#fff',
-          },
-          success: {
-            duration: 3000,
-            iconTheme: {
-              primary: '#10B981',
-              secondary: '#fff',
-            },
-            style: {
-              background: '#10B981',
-              fontWeight: '500',
-            },
-          },
-          error: {
-            duration: 4000,
-            iconTheme: {
-              primary: '#EF4444',
-              secondary: '#fff',
-            },
-            style: {
-              background: '#EF4444',
-              fontWeight: '500',
-            },
-          },
-          loading: {
-            duration: Infinity,
-            style: {
-              background: '#3B82F6',
-              color: '#fff',
-              fontWeight: '500',
-            },
+            background: "#363636",
+            color: "#fff",
           },
         }}
       />
@@ -968,233 +1291,40 @@ export default function CommunitiesScreen() {
 
       <div className="min-h-screen bg-gray-100 pt-4">
         {/* Delete Modal */}
-        {showDeleteModal && deleteTarget && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div
-              className="absolute inset-0 bg-black/50"
-              onClick={() => setShowDeleteModal(false)}
-            />
-            <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
-              <div className="flex items-center justify-between px-6 py-4 border-b">
-                <h3 className="text-lg font-semibold text-gray-800">
-                  Delete Community
-                </h3>
-                <button
-                  onClick={() => setShowDeleteModal(false)}
-                  className="p-1 hover:bg-gray-100 rounded"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
-              <div className="p-6">
-                <p className="text-gray-600 mb-6">
-                  Are you sure you want to delete this community? This action cannot be undone.
-                </p>
-                <div className="flex items-center gap-3 justify-end">
-                  <button
-                    onClick={() => setShowDeleteModal(false)}
-                    disabled={deleteLoading}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDeleteConfirm}
-                    disabled={deleteLoading}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {deleteLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-4 h-4" />
-                    )}
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <DeleteModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setDeleteTarget(null);
+          }}
+          onConfirm={deleteTarget ? handleDeleteConfirm : handleBulkDelete}
+          loading={deleteLoading}
+          title={deleteTarget ? "Delete Community" : `Delete ${selectedIds.size} Communities`}
+          message={
+            deleteTarget
+              ? `Are you sure you want to delete "${deleteTarget.name}"? This action cannot be undone.`
+              : `Are you sure you want to delete ${selectedIds.size} communities? This action cannot be undone.`
+          }
+        />
 
         {/* Quick Add Modal */}
-        {showQuickAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div
-              className="absolute inset-0 bg-black/50"
-              onClick={() => setShowQuickAddModal(false)}
-            />
-            <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
-              <div className="flex items-center justify-between px-6 py-4 border-b">
-                <h3 className="text-lg font-semibold text-gray-800">
-                  Quick Add Community
-                </h3>
-                <button
-                  onClick={() => setShowQuickAddModal(false)}
-                  className="p-1 hover:bg-gray-100 rounded"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
-              <form onSubmit={handleModalSave} className="p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Select City <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={modalData.city_id}
-                    onChange={(e) => handleModalChange("city_id", e.target.value)}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="">Select City</option>
-                    {UAE_CITIES.map((city) => (
-                      <option key={city.id} value={city.id}>
-                        {city.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Community Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={modalData.name}
-                    onChange={(e) => handleModalChange("name", e.target.value)}
-                    placeholder="Enter community name"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div className="flex items-center gap-3 justify-end pt-4 border-t">
-                  <button
-                    type="button"
-                    onClick={() => setShowQuickAddModal(false)}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitLoading}
-                    style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded hover:opacity-90 disabled:opacity-50"
-                  >
-                    {submitLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                    Create
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        <QuickAddModal
+          isOpen={showQuickAddModal}
+          onClose={() => setShowQuickAddModal(false)}
+          onSubmit={handleQuickAdd}
+          loading={submitLoading}
+        />
 
         {/* View Modal */}
-        {viewCommunity && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div
-              className="absolute inset-0 bg-black/50"
-              onClick={() => setViewCommunity(null)}
-            />
-            <div className="relative w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[90vh] overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-4 border-b">
-                <h3 className="text-lg font-semibold text-gray-800">
-                  {viewCommunity?.name}
-                </h3>
-                <button
-                  onClick={() => setViewCommunity(null)}
-                  className="p-1 hover:bg-gray-100 rounded"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
-              <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                  <div className="md:col-span-1">
-                    <div className="w-full h-32 rounded border border-gray-200 overflow-hidden bg-gray-100">
-                      <CommunityImage src={viewCommunity?.img} alt={viewCommunity?.name} />
-                    </div>
-                  </div>
-                  <div className="md:col-span-2 space-y-2 text-sm">
-                    <p><span className="font-medium text-gray-600">ID:</span> {viewCommunity?.id}</p>
-                    <p><span className="font-medium text-gray-600">Name:</span> {viewCommunity?.name}</p>
-                    <p><span className="font-medium text-gray-600">City:</span> {getCityName(viewCommunity?.city_id)}</p>
-                    <p><span className="font-medium text-gray-600">Country:</span> {getCountryName(viewCommunity?.country_id)}</p>
-                    <p>
-                      <span className="font-medium text-gray-600">Status:</span>{" "}
-                      <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${getStatusInfo(viewCommunity?.status).color}`}>
-                        {getStatusInfo(viewCommunity?.status).label}
-                      </span>
-                    </p>
-                  </div>
-                </div>
+        <ViewModal community={viewCommunity} onClose={() => setViewCommunity(null)} />
 
-                {viewCommunity?.description && (
-                  <div className="border-t pt-4">
-                    <h4 className="font-medium text-gray-800 mb-2">Description</h4>
-                    <div
-                      className="text-sm text-gray-600 prose prose-sm max-w-none"
-                      dangerouslySetInnerHTML={{ __html: viewCommunity.description }}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Overview Dropdown Modal */}
-        {showOverviewDropdown && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div
-              className="absolute inset-0"
-              onClick={() => setShowOverviewDropdown(false)}
-            />
-            <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl border border-gray-300">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-                <h3 className="text-sm font-medium text-gray-800">
-                  Show / Hide Column in Listing
-                </h3>
-                <button
-                  onClick={() => setShowOverviewDropdown(false)}
-                  className="p-1 hover:bg-gray-100 rounded"
-                >
-                  <X className="w-4 h-4 text-gray-500" />
-                </button>
-              </div>
-              <div className="p-4">
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  {ALL_COLUMNS.map((col) => (
-                    <label
-                      key={col.id}
-                      className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={visibleColumns.has(col.id)}
-                        onChange={() => toggleColumn(col.id)}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span>{col.label}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => {
-                      setShowOverviewDropdown(false);
-                      showSuccess("Columns updated successfully");
-                    }}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Column Selector Modal */}
+        <ColumnSelectorModal
+          isOpen={showOverviewDropdown}
+          onClose={() => setShowOverviewDropdown(false)}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+        />
 
         <div className="p-3">
           {/* Tabs */}
@@ -1220,10 +1350,18 @@ export default function CommunitiesScreen() {
 
           {/* Add/Edit Form Card */}
           <div className="bg-white border border-gray-300 rounded-lg mb-4">
-            <div className="px-4 py-3 border-b bg-gray-50 rounded-t-lg">
+            <div className="px-4 py-3 border-b bg-gray-50 rounded-t-lg flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-800">
                 {editMode ? "Edit Community" : "Add New Community"}
               </h2>
+              {editMode && (
+                <button
+                  onClick={resetForm}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </div>
 
             <form onSubmit={handleMainSave} className="p-4">
@@ -1276,9 +1414,7 @@ export default function CommunitiesScreen() {
                 </div>
 
                 <div>
-                  <label className="block mb-1 text-xs font-medium text-gray-700">
-                    Status
-                  </label>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">Status</label>
                   <select
                     value={formData.status}
                     onChange={(e) => handleFormChange("status", e.target.value)}
@@ -1292,9 +1428,7 @@ export default function CommunitiesScreen() {
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                 <div>
-                  <label className="block mb-1 text-xs font-medium text-gray-700">
-                    Latitude
-                  </label>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">Latitude</label>
                   <input
                     type="text"
                     value={formData.latitude}
@@ -1305,9 +1439,7 @@ export default function CommunitiesScreen() {
                 </div>
 
                 <div>
-                  <label className="block mb-1 text-xs font-medium text-gray-700">
-                    Longitude
-                  </label>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">Longitude</label>
                   <input
                     type="text"
                     value={formData.longitude}
@@ -1398,7 +1530,9 @@ export default function CommunitiesScreen() {
                       maxLength={160}
                       className="w-full border border-gray-300 rounded px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
-                    <p className="mt-1 text-xs text-gray-500">{formData.seo_description.length}/160</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {formData.seo_description.length}/160
+                    </p>
                   </div>
 
                   <div>
@@ -1470,6 +1604,19 @@ export default function CommunitiesScreen() {
                   <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
                   Refresh
                 </button>
+
+                {selectedIds.size > 0 && (
+                  <button
+                    onClick={() => {
+                      setDeleteTarget(null);
+                      setShowDeleteModal(true);
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete ({selectedIds.size})
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-3">
@@ -1486,16 +1633,14 @@ export default function CommunitiesScreen() {
                   </button>
                 </div>
 
-                <div className="relative">
-                  <button
-                    onClick={() => setShowOverviewDropdown(!showOverviewDropdown)}
-                    style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
-                    className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-sm font-medium rounded hover:opacity-90"
-                  >
-                    Overview
-                    <ChevronDown className="w-4 h-4" />
-                  </button>
-                </div>
+                <button
+                  onClick={() => setShowOverviewDropdown(true)}
+                  style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
+                  className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-sm font-medium rounded hover:opacity-90"
+                >
+                  Overview
+                  <ChevronDown className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
@@ -1516,7 +1661,9 @@ export default function CommunitiesScreen() {
                 ))}
               </select>
               <span className="ml-2">entries</span>
-              <span className="ml-4 text-gray-500">Total: {pagination.totalItems} communities</span>
+              <span className="ml-4 text-gray-500">
+                Total: {pagination.totalItems} communities
+              </span>
             </div>
           </div>
 
@@ -1541,14 +1688,12 @@ export default function CommunitiesScreen() {
                 <div className="w-8 h-8 border-3 border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
                 <p className="mt-4 text-gray-600">Loading communities...</p>
               </div>
-            ) : filteredCommunities.length === 0 ? (
+            ) : communities.length === 0 ? (
               <div className="text-center py-12">
                 <MapPin className="w-10 h-10 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-600">No communities found</p>
                 {searchTerm && (
-                  <p className="text-sm text-gray-500 mt-1">
-                    Try a different search term
-                  </p>
+                  <p className="text-sm text-gray-500 mt-1">Try a different search term</p>
                 )}
               </div>
             ) : (
@@ -1560,8 +1705,7 @@ export default function CommunitiesScreen() {
                         <input
                           type="checkbox"
                           checked={
-                            selectedIds.size === paginatedCommunities.length &&
-                            paginatedCommunities.length > 0
+                            selectedIds.size === communities.length && communities.length > 0
                           }
                           onChange={toggleSelectAll}
                           className="w-4 h-4 rounded border-gray-300"
@@ -1608,7 +1752,7 @@ export default function CommunitiesScreen() {
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedCommunities.map((community) => {
+                    {communities.map((community) => {
                       const statusInfo = getStatusInfo(community.status);
                       const isActive = isStatusActive(community.status);
 
@@ -1668,9 +1812,12 @@ export default function CommunitiesScreen() {
                             <td className="px-4 py-3">
                               <button
                                 onClick={() =>
-                                  handleStatusUpdate(community.id, isActive ? "inactive" : "active")
+                                  handleStatusUpdate(
+                                    community.id,
+                                    isActive ? "inactive" : "active"
+                                  )
                                 }
-                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color} hover:opacity-80`}
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color} hover:opacity-80 transition-opacity`}
                               >
                                 {statusInfo.label}
                               </button>
@@ -1693,19 +1840,11 @@ export default function CommunitiesScreen() {
                                 <Edit3 className="w-4 h-4" />
                               </button>
                               <button
-                                onClick={() => {
-                                  setDeleteTarget({ type: "single", id: community.id });
-                                  setShowDeleteModal(true);
-                                }}
-                                disabled={deleteLoading === community.id}
-                                className="p-1.5 rounded hover:bg-red-50 text-red-600 disabled:opacity-50"
+                                onClick={() => handleDeleteClick(community)}
+                                className="p-1.5 rounded hover:bg-red-50 text-red-600"
                                 title="Delete"
                               >
-                                {deleteLoading === community.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-4 h-4" />
-                                )}
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
@@ -1719,16 +1858,16 @@ export default function CommunitiesScreen() {
           </div>
 
           {/* Pagination */}
-          {filteredCommunities.length > 0 && (
+          {communities.length > 0 && (
             <div className="flex items-center justify-between bg-white border border-gray-300 border-t-0 px-4 py-3 rounded-b">
               <div className="text-sm text-gray-600">
-                Showing {(currentPage - 1) * showCount + 1} to{" "}
-                {Math.min(currentPage * showCount, filteredCommunities.length)} of{" "}
-                {filteredCommunities.length} entries
+                Showing {(pagination.currentPage - 1) * pagination.limit + 1} to{" "}
+                {Math.min(pagination.currentPage * pagination.limit, pagination.totalItems)} of{" "}
+                {pagination.totalItems} entries
               </div>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
                   className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -1749,7 +1888,7 @@ export default function CommunitiesScreen() {
                   return (
                     <button
                       key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
+                      onClick={() => handlePageChange(pageNum)}
                       className={`px-3 py-1.5 border rounded text-sm ${
                         currentPage === pageNum
                           ? "bg-blue-600 text-white border-blue-600"
@@ -1761,7 +1900,7 @@ export default function CommunitiesScreen() {
                   );
                 })}
                 <button
-                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
                   className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >

@@ -1,8 +1,6 @@
-// app/(auth)/login/page.jsx
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import axios from "axios";
@@ -21,170 +19,341 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// AUTH UTILITIES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const setUserToken = (token, remember = false) => {
+  const storage = remember ? localStorage : sessionStorage;
+  storage.setItem("userToken", token);
+  storage.setItem("userTokenTimestamp", Date.now().toString());
+};
+
+const setUserData = (user, remember = false) => {
+  const storage = remember ? localStorage : sessionStorage;
+  storage.setItem("userData", JSON.stringify(user));
+};
+
+const getUserToken = () => {
+  return localStorage.getItem("userToken") || sessionStorage.getItem("userToken");
+};
+
+const clearUserAuth = () => {
+  localStorage.removeItem("userToken");
+  localStorage.removeItem("userData");
+  localStorage.removeItem("userTokenTimestamp");
+  sessionStorage.removeItem("userToken");
+  sessionStorage.removeItem("userData");
+  sessionStorage.removeItem("userTokenTimestamp");
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CUSTOM HOOKS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const useAuth = () => {
-  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  const checkAuth = useCallback(async () => {
-    try {
-      const response = await axios.get(`${API_URL}/api/v1/users/me`, {
-        withCredentials: true,
-      });
-
-      if (response.data.success) {
-        setUser(response.data.user || response.data.data);
-        setIsAuthenticated(true);
-      }
-    } catch (error) {
-      setUser(null);
-      setIsAuthenticated(false);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const hasChecked = useRef(false);
 
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+    if (hasChecked.current) return;
+    hasChecked.current = true;
 
-  return { user, loading, isAuthenticated, refetch: checkAuth };
+    const checkAuth = async () => {
+      try {
+        const token = getUserToken();
+
+        if (!token) {
+          setLoading(false);
+          return;
+        }
+
+        console.log("🔐 [AUTH CHECK] Verifying token...");
+
+        const response = await axios.get(`${API_URL}/api/v1/users/profile`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          withCredentials: true,
+          timeout: 5000,
+        });
+
+        if (response.data.success && response.data.user) {
+          console.log("✅ [AUTH CHECK] User authenticated");
+          setIsAuthenticated(true);
+          // Redirect to dashboard
+          setTimeout(() => {
+            window.location.replace("/dashboard");
+          }, 100);
+          return;
+        }
+
+        clearUserAuth();
+        setLoading(false);
+      } catch (error) {
+        console.log("⚠️ [AUTH CHECK] Not authenticated");
+        clearUserAuth();
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  return { loading, isAuthenticated };
 };
 
 const useLogin = () => {
   const [loading, setLoading] = useState(false);
 
-  const login = useCallback(async (credentials) => {
+  const login = useCallback(async (credentials, rememberMe = false) => {
     setLoading(true);
 
     try {
+      console.log("🔄 [LOGIN] Sending request...");
+
       const response = await axios.post(
         `${API_URL}/api/v1/users/login`,
         credentials,
-        { withCredentials: true }
+        {
+          headers: { "Content-Type": "application/json" },
+          withCredentials: true,
+          timeout: 15000,
+        }
       );
 
-      if (response.data.success) {
-        toast.success("Welcome back!", { icon: "🎉" });
-        await new Promise(resolve => setTimeout(resolve, 100));
-        window.location.replace("/dashboard");
-        return { success: true, data: response.data };
+      console.log("✅ [LOGIN] Response:", response.status);
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "Login failed");
       }
 
-      throw new Error(response.data.message || "Login failed");
+      if (!response.data.token) {
+        throw new Error("No authentication token received");
+      }
+
+      // Verify it's a regular user (not admin)
+      const userType = response.data.user?.usertype?.toLowerCase();
+      if (userType === "admin") {
+        throw new Error("Admin accounts must use the admin login portal");
+      }
+
+      console.log("✅ [LOGIN] User authenticated:", response.data.user.email);
+
+      // Save token and user data
+      setUserToken(response.data.token, rememberMe);
+      setUserData(response.data.user, rememberMe);
+
+      toast.success(`Welcome back, ${response.data.user.name || "User"}!`);
+
+      return { success: true, data: response.data };
     } catch (error) {
-      const message =
-        error.response?.data?.message || error.message || "Login failed";
+      console.error("❌ [LOGIN] Error:", error);
+
+      let message = "Login failed. Please try again.";
+      const status = error.response?.status;
+
+      if (status === 401) {
+        message = "Invalid email or password";
+      } else if (status === 403) {
+        message = error.response.data?.message || "Access denied";
+      } else if (error.code === "ECONNABORTED") {
+        message = "Request timeout. Please check your connection.";
+      } else if (error.message === "Network Error") {
+        message = "Network error. Please check your internet.";
+      } else if (error.message) {
+        message = error.message;
+      }
+
       toast.error(message);
       setLoading(false);
       return { success: false, error: message };
     }
   }, []);
 
-  const handleGoogleAuth = useCallback(async (googleToken) => {
+  const handleGoogleAuth = useCallback(async (credential, rememberMe = false) => {
     setLoading(true);
 
     try {
+      console.log("🔄 [GOOGLE] Authenticating...");
+
       const response = await axios.post(
-        `${API_URL}/api/v1/users/google`,
-        { token: googleToken },
-        { withCredentials: true }
+        `${API_URL}/api/v1/users/google-auth`,
+        {
+          credential: credential,
+        },
+        {
+          headers: { "Content-Type": "application/json" },
+          withCredentials: true,
+          timeout: 15000,
+        }
       );
 
-      if (response.data.success) {
-        toast.success("Signed in with Google!", { icon: "🎉" });
-        await new Promise(resolve => setTimeout(resolve, 100));
-        window.location.replace("/dashboard");
-        return { success: true, data: response.data };
+      console.log("✅ [GOOGLE] Response:", response.status);
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "Google authentication failed");
       }
 
-      throw new Error(response.data.message || "Google authentication failed");
+      if (!response.data.token) {
+        throw new Error("No authentication token received");
+      }
+
+      // Verify it's a regular user (not admin)
+      const userType = response.data.user?.usertype?.toLowerCase();
+      if (userType === "admin") {
+        throw new Error("Admin accounts must use the admin login portal");
+      }
+
+      console.log("✅ [GOOGLE] User authenticated:", response.data.user.email);
+
+      // Save token and user data
+      setUserToken(response.data.token, true); // Always remember for Google
+      setUserData(response.data.user, true);
+
+      toast.success(`Welcome, ${response.data.user.name || "User"}!`);
+
+      return { success: true, data: response.data };
     } catch (error) {
-      const message =
-        error.response?.data?.message || error.message || "Google authentication failed";
+      console.error("❌ [GOOGLE] Error:", error);
+
+      let message = "Google sign-in failed";
+      const status = error.response?.status;
+
+      if (status === 403) {
+        message = error.response.data?.message || "Access denied";
+      } else if (status === 401) {
+        message = "Google authentication failed. Please try again.";
+      } else if (status === 400) {
+        message = error.response.data?.message || "Invalid request";
+      } else if (error.message) {
+        message = error.message;
+      }
+
       toast.error(message);
       setLoading(false);
       return { success: false, error: message };
     }
   }, []);
 
-  return { login, handleGoogleAuth, loading, setLoading };
+  return { login, handleGoogleAuth, loading };
 };
 
 const useGoogleAuth = (onSuccess, onError) => {
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
+  const googleButtonRef = useRef(null);
 
   useEffect(() => {
-    if (window.google?.accounts?.id) {
-      setIsGoogleLoaded(true);
-      initializeGoogle();
-      return;
-    }
+    const loadGoogleScript = () => {
+      if (window.google?.accounts?.id) {
+        setIsGoogleLoaded(true);
+        initializeGoogle();
+        return;
+      }
 
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-
-    script.onload = () => {
-      setIsGoogleLoaded(true);
-      initializeGoogle();
-    };
-
-    script.onerror = () => {
-      console.error("Failed to load Google SDK");
-      onError?.("Failed to load Google SDK");
-    };
-
-    document.body.appendChild(script);
-
-    function initializeGoogle() {
-      if (!window.google?.accounts?.id || !GOOGLE_CLIENT_ID) return;
-
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (response) => {
-          if (response.credential) {
-            onSuccess?.(response.credential);
-          } else {
-            onError?.("No credential received from Google");
-          }
-        },
-      });
-    }
-
-    return () => {
-      const existingScript = document.querySelector(
-        'script[src="https://accounts.google.com/gsi/client"]'
-      );
+      const existingScript = document.getElementById("google-signin-script");
       if (existingScript) {
         existingScript.remove();
+      }
+
+      const script = document.createElement("script");
+      script.id = "google-signin-script";
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+
+      script.onload = () => {
+        console.log("✅ [GOOGLE] SDK loaded");
+        setIsGoogleLoaded(true);
+        initializeGoogle();
+      };
+
+      script.onerror = () => {
+        console.error("❌ [GOOGLE] Failed to load SDK");
+        onError?.("Failed to load Google Sign-In");
+      };
+
+      document.body.appendChild(script);
+    };
+
+    const initializeGoogle = () => {
+      if (!window.google?.accounts?.id || !GOOGLE_CLIENT_ID) {
+        console.error("❌ [GOOGLE] Missing configuration");
+        return;
+      }
+
+      try {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: (response) => {
+            if (response.credential) {
+              console.log("✅ [GOOGLE] Credential received");
+              onSuccess?.(response.credential);
+            } else {
+              console.error("❌ [GOOGLE] No credential");
+              onError?.("No credential received from Google");
+            }
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+
+        console.log("✅ [GOOGLE] SDK initialized");
+      } catch (error) {
+        console.error("❌ [GOOGLE] Init error:", error);
+        onError?.("Failed to initialize Google Sign-In");
+      }
+    };
+
+    loadGoogleScript();
+
+    return () => {
+      const script = document.getElementById("google-signin-script");
+      if (script) {
+        script.remove();
       }
     };
   }, [onSuccess, onError]);
 
   const triggerGoogleSignIn = useCallback(() => {
     if (!window.google?.accounts?.id) {
-      onError?.("Google SDK not loaded");
+      console.error("❌ [GOOGLE] SDK not loaded");
+      onError?.("Google SDK not loaded. Please refresh the page.");
       return;
     }
 
-    window.google.accounts.id.prompt((notification) => {
-      if (notification.isNotDisplayed()) {
-        const buttonDiv = document.getElementById("google-signin-button");
-        if (buttonDiv) {
+    try {
+      window.google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed()) {
+          console.log("⚠️ [GOOGLE] Prompt not displayed, rendering button");
+          
+          const buttonDiv = document.createElement("div");
+          buttonDiv.style.position = "fixed";
+          buttonDiv.style.top = "-9999px";
+          document.body.appendChild(buttonDiv);
+
           window.google.accounts.id.renderButton(buttonDiv, {
+            type: "standard",
             theme: "outline",
             size: "large",
-            width: "100%",
           });
-          buttonDiv.querySelector("div")?.click();
+
+          setTimeout(() => {
+            const button = buttonDiv.querySelector("div[role='button']");
+            if (button) {
+              button.click();
+            }
+            setTimeout(() => buttonDiv.remove(), 1000);
+          }, 100);
+        } else if (notification.isSkippedMoment()) {
+          console.log("⚠️ [GOOGLE] User closed the prompt");
+          onError?.("Google sign-in was cancelled");
         }
-      }
-    });
+      });
+    } catch (error) {
+      console.error("❌ [GOOGLE] Trigger error:", error);
+      onError?.("Failed to open Google Sign-In");
+    }
   }, [onError]);
 
   return { isGoogleLoaded, triggerGoogleSignIn };
@@ -217,7 +386,17 @@ export default function LoginPage() {
     async (credential) => {
       setGoogleLoading(true);
       setIsRedirecting(true);
-      await handleGoogleAuth(credential);
+
+      const result = await handleGoogleAuth(credential, true);
+
+      if (result.success) {
+        setTimeout(() => {
+          window.location.replace("/dashboard");
+        }, 500);
+      } else {
+        setGoogleLoading(false);
+        setIsRedirecting(false);
+      }
     },
     (error) => {
       console.error("Google Auth Error:", error);
@@ -226,13 +405,6 @@ export default function LoginPage() {
       setIsRedirecting(false);
     }
   );
-
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (!authLoading && isAuthenticated) {
-      window.location.replace("/dashboard");
-    }
-  }, [authLoading, isAuthenticated]);
 
   const handleChange = (e) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -248,58 +420,86 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!form.email.trim()) {
+    // Validation
+    const email = form.email.trim();
+    const password = form.password;
+
+    if (!email) {
       return toast.error("Email is required");
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-      return toast.error("Invalid email format");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return toast.error("Please enter a valid email address");
     }
 
-    if (!form.password || form.password.length < 6) {
+    if (!password) {
+      return toast.error("Password is required");
+    }
+
+    if (password.length < 6) {
       return toast.error("Password must be at least 6 characters");
     }
 
     // Save email if remember me
     if (rememberMe) {
-      localStorage.setItem("user_remembered_email", form.email.trim().toLowerCase());
+      localStorage.setItem("user_remembered_email", email.toLowerCase());
     } else {
       localStorage.removeItem("user_remembered_email");
     }
 
     setIsRedirecting(true);
 
-    const result = await login({
-      email: form.email.trim().toLowerCase(),
-      password: form.password,
-    });
+    const result = await login(
+      {
+        email: email.toLowerCase(),
+        password: password,
+      },
+      rememberMe
+    );
 
-    if (!result.success) {
+    if (result.success) {
+      setTimeout(() => {
+        window.location.replace("/dashboard");
+      }, 500);
+    } else {
       setIsRedirecting(false);
     }
   };
 
   const handleGoogleSignIn = () => {
     if (!isGoogleLoaded) {
-      toast.error("Google SDK is loading. Please try again.");
+      toast.error("Google SDK is loading. Please wait a moment.");
       return;
     }
+
     setGoogleLoading(true);
     triggerGoogleSignIn();
+
+    // Fallback timeout
+    setTimeout(() => {
+      if (googleLoading) {
+        setGoogleLoading(false);
+      }
+    }, 10000);
   };
 
   const isLoading = loading || googleLoading;
 
-  // Loading states
-  if (authLoading) {
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // LOADING STATES
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  if (authLoading || isAuthenticated) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 
-            className="w-10 h-10 animate-spin mx-auto mb-4" 
-            style={{ color: 'rgb(68,138,255)' }} 
+          <Loader2
+            className="w-10 h-10 animate-spin mx-auto mb-4"
+            style={{ color: "rgb(68,138,255)" }}
           />
-          <p className="text-slate-500">Checking authentication...</p>
+          <p className="text-slate-500">
+            {isAuthenticated ? "Redirecting to dashboard..." : "Checking authentication..."}
+          </p>
         </div>
       </div>
     );
@@ -309,13 +509,13 @@ export default function LoginPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
         <div className="text-center">
-          <div 
+          <div
             className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-            style={{ backgroundColor: 'rgba(68,138,255,0.1)' }}
+            style={{ backgroundColor: "rgba(68,138,255,0.1)" }}
           >
-            <Loader2 
-              className="w-8 h-8 animate-spin" 
-              style={{ color: 'rgb(68,138,255)' }} 
+            <Loader2
+              className="w-8 h-8 animate-spin"
+              style={{ color: "rgb(68,138,255)" }}
             />
           </div>
           <p className="text-slate-700 font-medium">Login successful!</p>
@@ -324,6 +524,10 @@ export default function LoginPage() {
       </div>
     );
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // LOGIN FORM
+  // ═══════════════════════════════════════════════════════════════════════════════
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center px-4 py-12">
@@ -341,11 +545,64 @@ export default function LoginPage() {
             />
           </Link>
           <h1 className="text-2xl font-bold text-slate-800">Welcome Back</h1>
-          <p className="text-slate-500 mt-1 text-sm">Sign in to continue to your account</p>
+          <p className="text-slate-500 mt-1 text-sm">
+            Sign in to continue to your account
+          </p>
         </div>
 
         {/* Form Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+          {/* Google Button */}
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={isLoading || !isGoogleLoaded}
+            className="w-full h-12 flex items-center justify-center gap-3
+              bg-white border-2 border-slate-200 rounded-xl font-medium text-slate-700
+              hover:bg-slate-50 hover:border-slate-300 
+              disabled:opacity-50 disabled:cursor-not-allowed
+              transition-all duration-200 mb-6"
+          >
+            {googleLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                <span>Connecting to Google...</span>
+              </>
+            ) : (
+              <>
+                <svg className="h-5 w-5" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  />
+                </svg>
+                <span>Continue with Google</span>
+              </>
+            )}
+          </button>
+
+          {/* Divider */}
+          <div className="relative flex items-center my-6">
+            <div className="flex-1 border-t border-slate-200" />
+            <span className="px-4 text-xs text-slate-400 uppercase tracking-wider font-medium bg-white">
+              or continue with email
+            </span>
+            <div className="flex-1 border-t border-slate-200" />
+          </div>
+
+          {/* Email/Password Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email */}
             <div>
@@ -361,7 +618,6 @@ export default function LoginPage() {
                   onChange={handleChange}
                   placeholder="Enter your email"
                   autoComplete="email"
-                  autoFocus
                   disabled={isLoading}
                   className="w-full h-12 pl-12 pr-4 border border-slate-200 rounded-xl
                     focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none
@@ -419,7 +675,7 @@ export default function LoginPage() {
                   className="w-4 h-4 rounded border-slate-300 cursor-pointer
                     focus:ring-2 focus:ring-blue-400
                     disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ accentColor: 'rgb(68,138,255)' }}
+                  style={{ accentColor: "rgb(68,138,255)" }}
                 />
                 <span className="ml-2 text-sm text-slate-600 group-hover:text-slate-800 transition-colors">
                   Remember me
@@ -429,7 +685,7 @@ export default function LoginPage() {
               <Link
                 href="/forgot-password"
                 className="text-sm font-medium hover:underline transition-colors"
-                style={{ color: 'rgb(68,138,255)' }}
+                style={{ color: "rgb(68,138,255)" }}
               >
                 Forgot Password?
               </Link>
@@ -443,9 +699,9 @@ export default function LoginPage() {
                 text-white rounded-xl font-medium
                 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed
                 transition-all duration-200 shadow-lg"
-              style={{ 
-                backgroundColor: 'rgb(68,138,255)',
-                boxShadow: '0 4px 14px 0 rgba(68,138,255,0.39)'
+              style={{
+                backgroundColor: "rgb(68,138,255)",
+                boxShadow: "0 4px 14px 0 rgba(68,138,255,0.39)",
               }}
             >
               {loading ? (
@@ -460,58 +716,6 @@ export default function LoginPage() {
                 </>
               )}
             </button>
-
-            {/* Divider */}
-            <div className="relative flex items-center my-6">
-              <div className="flex-1 border-t border-slate-200" />
-              <span className="px-4 text-xs text-slate-400 uppercase tracking-wider font-medium bg-white">
-                or continue with
-              </span>
-              <div className="flex-1 border-t border-slate-200" />
-            </div>
-
-            {/* Google Button */}
-            <button
-              type="button"
-              onClick={handleGoogleSignIn}
-              disabled={isLoading || !isGoogleLoaded}
-              className="w-full h-12 flex items-center justify-center gap-3
-                bg-white border-2 border-slate-200 rounded-xl font-medium text-slate-700
-                hover:bg-slate-50 hover:border-slate-300 
-                disabled:opacity-50 disabled:cursor-not-allowed
-                transition-all duration-200"
-            >
-              {googleLoading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-                  <span>Connecting...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="h-5 w-5" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                    />
-                  </svg>
-                  <span>Continue with Google</span>
-                </>
-              )}
-            </button>
-
-            <div id="google-signin-button" className="hidden" />
           </form>
         </div>
 
@@ -521,7 +725,7 @@ export default function LoginPage() {
           <Link
             href="/register"
             className="font-semibold hover:underline"
-            style={{ color: 'rgb(68,138,255)' }}
+            style={{ color: "rgb(68,138,255)" }}
           >
             Create Account
           </Link>

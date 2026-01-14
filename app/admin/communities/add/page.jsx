@@ -13,8 +13,12 @@ import {
   FiMapPin,
 } from "react-icons/fi";
 import { Loader2, Search, Info, Image as ImageIcon, Video } from "lucide-react";
-import { getAdminToken } from "../../../../utils/auth";
+import { getAdminToken } from "@/utils/auth";
 import { Country, City } from "country-state-city";
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════════════
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -28,46 +32,68 @@ const SLIDER_TYPES = [
   { id: "video", label: "Video", icon: Video },
 ];
 
-export default function AddCommunityPage() {
+const STATUS_OPTIONS = [
+  { id: "active", label: "Active", color: "green" },
+  { id: "inactive", label: "Inactive", color: "gray" },
+];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UTILITY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const generateSlug = (text) => {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INITIAL FORM STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const INITIAL_FORM_STATE = {
+  country: "",
+  name: "",
+  slug: "",
+  city: "",
+  longitude: "",
+  latitude: "",
+  slider_type: "image",
+  description: "",
+  status: "active",
+  seo_title: "",
+  seo_description: "",
+  focus_keyword: "",
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function AddCommunityPage() {
   const router = useRouter();
 
-  const [form, setForm] = useState({
-    country: "",
-    name: "",
-    slug: "", // 👈 ADD THIS
-    city: "",
-    longitude: "",
-    latitude: "",
-    slider_type: "image",
-    description: "",
-    status: "active",
-    seo_title: "",
-    seo_description: "",
-    focus_keyword: "",
-  });
-
+  // Form State
+  const [form, setForm] = useState(INITIAL_FORM_STATE);
   const [locationImage, setLocationImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [errors, setErrors] = useState({});
   const [activeTab, setActiveTab] = useState("details");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Dynamic data from package
+  // Location Data
   const [countries, setCountries] = useState([]);
   const [cities, setCities] = useState([]);
   const [selectedCountryCode, setSelectedCountryCode] = useState("");
 
-  // 👇 ADD THIS: Generate slug from name
-  const generateSlug = (text) => {
-    return text
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w\s-]/g, "") // Remove special characters
-      .replace(/\s+/g, "-") // Replace spaces with -
-      .replace(/-+/g, "-") // Replace multiple - with single -
-      .replace(/^-+/, "") // Remove - from start
-      .replace(/-+$/, ""); // Remove - from end
-  };
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EFFECTS
+  // ═══════════════════════════════════════════════════════════════════════════
 
   // Load countries on mount
   useEffect(() => {
@@ -99,7 +125,10 @@ export default function AddCommunityPage() {
     }
   }, [selectedCountryCode]);
 
-  // API Helper
+  // ═══════════════════════════════════════════════════════════════════════════
+  // API HELPER
+  // ═══════════════════════════════════════════════════════════════════════════
+
   const apiRequest = async (endpoint, options = {}) => {
     const token = getAdminToken();
 
@@ -137,12 +166,15 @@ export default function AddCommunityPage() {
     return data;
   };
 
-  // Handle form change
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HANDLERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => ({ ...prev, [field]: "" }));
 
-    // 👇 ADD THIS: Auto-generate slug when name changes
+    // Auto-generate slug when name changes
     if (field === "name") {
       const autoSlug = generateSlug(value);
       setForm((prev) => ({ ...prev, slug: autoSlug }));
@@ -168,9 +200,8 @@ export default function AddCommunityPage() {
     }
   };
 
-  // Handle image upload
   const handleImageUpload = (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
@@ -185,24 +216,26 @@ export default function AddCommunityPage() {
 
     setLocationImage(file);
     const reader = new FileReader();
-    reader.onload = (e) => setImagePreview(e.target.result);
+    reader.onload = (event) => setImagePreview(event.target?.result);
     reader.readAsDataURL(file);
     toast.success("Image uploaded");
   };
 
-  // Remove image
   const removeImage = () => {
     setLocationImage(null);
     setImagePreview(null);
   };
 
-  // Validate form
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VALIDATION
+  // ═══════════════════════════════════════════════════════════════════════════
+
   const validateForm = () => {
     const newErrors = {};
 
     if (!form.country) newErrors.country = "Country is required";
     if (!form.name.trim()) newErrors.name = "Community name is required";
-    if (!form.slug.trim()) newErrors.slug = "Slug is required"; // 👈 ADD THIS
+    if (!form.slug.trim()) newErrors.slug = "Slug is required";
     if (!form.city) newErrors.city = "City is required";
 
     if (form.longitude && isNaN(parseFloat(form.longitude))) {
@@ -216,7 +249,10 @@ export default function AddCommunityPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle submit
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SUBMIT
+  // ═══════════════════════════════════════════════════════════════════════════
+
   const handleSubmit = async () => {
     if (!validateForm()) {
       toast.error("Please fill all required fields");
@@ -231,7 +267,7 @@ export default function AddCommunityPage() {
       const formData = new FormData();
 
       formData.append("name", form.name.trim());
-      formData.append("slug", form.slug.trim()); // 👈 ADD THIS
+      formData.append("slug", form.slug.trim());
       formData.append("country", form.country);
       formData.append("city", form.city);
       formData.append("status", form.status);
@@ -268,25 +304,40 @@ export default function AddCommunityPage() {
     }
   };
 
-  // SEO Checklist
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SEO CHECKLIST
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const wordCount = form.description.split(/\s+/).filter(Boolean).length;
+
   const seoChecks = [
     {
       label: "Add Focus Keyword to the SEO title",
-      passed: form.focus_keyword && form.seo_title.toLowerCase().includes(form.focus_keyword.toLowerCase()),
+      passed:
+        form.focus_keyword &&
+        form.seo_title.toLowerCase().includes(form.focus_keyword.toLowerCase()),
     },
     {
       label: "Add Focus Keyword to your SEO Meta Description",
-      passed: form.focus_keyword && form.seo_description.toLowerCase().includes(form.focus_keyword.toLowerCase()),
+      passed:
+        form.focus_keyword &&
+        form.seo_description.toLowerCase().includes(form.focus_keyword.toLowerCase()),
     },
     {
       label: "Use Focus Keyword in the content",
-      passed: form.focus_keyword && form.description.toLowerCase().includes(form.focus_keyword.toLowerCase()),
+      passed:
+        form.focus_keyword &&
+        form.description.toLowerCase().includes(form.focus_keyword.toLowerCase()),
     },
     {
-      label: `Content is ${form.description.split(/\s+/).filter(Boolean).length} words long. Consider using at least 600 words.`,
-      passed: form.description.split(/\s+/).filter(Boolean).length >= 600,
+      label: `Content is ${wordCount} words long. Consider using at least 600 words.`,
+      passed: wordCount >= 600,
     },
   ];
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -326,20 +377,23 @@ export default function AddCommunityPage() {
         <div className="bg-white rounded-lg border border-gray-200 mb-6">
           <div className="border-b border-gray-200">
             <nav className="flex">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === tab.id
-                      ? "border-gray-900 text-gray-900"
-                      : "border-transparent text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  <tab.icon className="w-4 h-4" />
-                  {tab.label}
-                </button>
-              ))}
+              {TABS.map((tab) => {
+                const TabIcon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === tab.id
+                        ? "border-gray-900 text-gray-900"
+                        : "border-transparent text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    <TabIcon className="w-4 h-4" />
+                    {tab.label}
+                  </button>
+                );
+              })}
             </nav>
           </div>
 
@@ -384,7 +438,7 @@ export default function AddCommunityPage() {
                         disabled={!form.country}
                         className={`w-full h-10 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 ${
                           errors.city ? "border-red-300" : "border-gray-200"
-                        } ${!form.country ? "bg-gray-100" : ""}`}
+                        } ${!form.country ? "bg-gray-100 cursor-not-allowed" : ""}`}
                       >
                         <option value="">
                           {!form.country ? "Select country first" : "Select City"}
@@ -425,7 +479,7 @@ export default function AddCommunityPage() {
                     )}
                   </div>
 
-                  {/* 👇 ADD THIS: Slug Field */}
+                  {/* Slug */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
                       Slug <span className="text-red-500">*</span>
@@ -447,7 +501,7 @@ export default function AddCommunityPage() {
                     </p>
                   </div>
 
-                  {/* Longitude & Latitude */}
+                  {/* Coordinates */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -493,10 +547,7 @@ export default function AddCommunityPage() {
                       Status
                     </label>
                     <div className="flex gap-3">
-                      {[
-                        { id: "active", label: "Active", color: "green" },
-                        { id: "inactive", label: "Inactive", color: "gray" },
-                      ].map((status) => (
+                      {STATUS_OPTIONS.map((status) => (
                         <button
                           key={status.id}
                           type="button"
@@ -513,7 +564,7 @@ export default function AddCommunityPage() {
                             className={`w-2 h-2 rounded-full ${
                               status.id === "active" ? "bg-green-500" : "bg-gray-500"
                             }`}
-                          ></span>
+                          />
                           {status.label}
                         </button>
                       ))}
@@ -527,7 +578,7 @@ export default function AddCommunityPage() {
                     </label>
                     <div className="flex gap-3">
                       {SLIDER_TYPES.map((type) => {
-                        const Icon = type.icon;
+                        const TypeIcon = type.icon;
                         return (
                           <button
                             key={type.id}
@@ -539,7 +590,7 @@ export default function AddCommunityPage() {
                                 : "border-gray-200 text-gray-600 hover:border-gray-300"
                             }`}
                           >
-                            <Icon className="w-4 h-4" />
+                            <TypeIcon className="w-4 h-4" />
                             {type.label}
                           </button>
                         );
@@ -547,7 +598,7 @@ export default function AddCommunityPage() {
                     </div>
                   </div>
 
-                  {/* Community Description */}
+                  {/* Description */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
                       Community Description
@@ -559,18 +610,17 @@ export default function AddCommunityPage() {
                       className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none"
                       placeholder="Write about the community..."
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      {form.description.split(/\s+/).filter(Boolean).length} words
-                    </p>
+                    <p className="text-xs text-gray-500 mt-1">{wordCount} words</p>
                   </div>
                 </div>
 
-                {/* Sidebar - Location Image */}
+                {/* Sidebar - Image Upload */}
                 <div className="space-y-4">
                   <div className="bg-gray-50 rounded-lg p-4">
                     <h3 className="text-sm font-medium text-gray-900 mb-3">Location Image</h3>
                     <p className="text-xs text-gray-500 mb-3">
-                      Max File Size: 5MB<br />
+                      Max File Size: 5MB
+                      <br />
                       Filetypes: JPG, PNG, WebP
                     </p>
 
@@ -641,7 +691,8 @@ export default function AddCommunityPage() {
                       placeholder="SEO title..."
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      This is what will appear in the first line when this shows up in the search results.
+                      This is what will appear in the first line when this shows up in the search
+                      results.
                     </p>
                   </div>
 
@@ -649,7 +700,9 @@ export default function AddCommunityPage() {
                   <div>
                     <div className="flex justify-between mb-1.5">
                       <label className="text-sm font-medium text-gray-700">SEO Description</label>
-                      <span className="text-xs text-gray-500">{form.seo_description.length} / 160</span>
+                      <span className="text-xs text-gray-500">
+                        {form.seo_description.length} / 160
+                      </span>
                     </div>
                     <textarea
                       value={form.seo_description}
@@ -660,15 +713,20 @@ export default function AddCommunityPage() {
                       placeholder="SEO description..."
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      This is what will appear as the description when this shows up in the search results.
+                      This is what will appear as the description when this shows up in the search
+                      results.
                     </p>
                   </div>
 
                   {/* Focus Keyword */}
                   <div>
                     <div className="flex justify-between mb-1.5">
-                      <label className="text-sm font-medium text-gray-700">SEO Focus Keyword</label>
-                      <span className="text-xs text-gray-500">{form.focus_keyword.length} / 100</span>
+                      <label className="text-sm font-medium text-gray-700">
+                        SEO Focus Keyword
+                      </label>
+                      <span className="text-xs text-gray-500">
+                        {form.focus_keyword.length} / 100
+                      </span>
                     </div>
                     <input
                       type="text"
@@ -692,7 +750,11 @@ export default function AddCommunityPage() {
                         ) : (
                           <FiAlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
                         )}
-                        <span className={`text-xs ${item.passed ? "text-green-700" : "text-yellow-700"}`}>
+                        <span
+                          className={`text-xs ${
+                            item.passed ? "text-green-700" : "text-yellow-700"
+                          }`}
+                        >
                           {item.label}
                         </span>
                       </div>
@@ -728,3 +790,9 @@ export default function AddCommunityPage() {
     </div>
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export default AddCommunityPage;

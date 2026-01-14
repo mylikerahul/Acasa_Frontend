@@ -28,14 +28,54 @@ import { Toaster, toast } from "react-hot-toast";
 import {
   getAdminToken,
   isAdminTokenValid,
-  getCurrentSessionType,
   logoutAll,
+  getCurrentSessionType,
 } from "../../../utils/auth";
 import AdminNavbar from "../dashboard/header/DashboardNavbar";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
+// ==================== DEBUG HELPER ====================
+const DEBUG = true; // Set to false in production
+
+const debug = {
+  log: (...args) => {
+    if (DEBUG) {
+      console.log(`[DEBUG ${new Date().toISOString()}]`, ...args);
+    }
+  },
+  error: (...args) => {
+    if (DEBUG) {
+      console.error(`[ERROR ${new Date().toISOString()}]`, ...args);
+    }
+  },
+  warn: (...args) => {
+    if (DEBUG) {
+      console.warn(`[WARN ${new Date().toISOString()}]`, ...args);
+    }
+  },
+  group: (label) => {
+    if (DEBUG) {
+      console.group(`[DEBUG] ${label}`);
+    }
+  },
+  groupEnd: () => {
+    if (DEBUG) {
+      console.groupEnd();
+    }
+  },
+  table: (data) => {
+    if (DEBUG) {
+      console.table(data);
+    }
+  },
+};
+
+// ==================== TOKEN VERIFY ====================
 const verifyToken = async (token) => {
+  debug.group("verifyToken");
+  debug.log("Token to verify:", token ? `${token.substring(0, 20)}...` : "null");
+  
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
       headers: {
@@ -44,13 +84,20 @@ const verifyToken = async (token) => {
       },
     });
 
+    debug.log("Verify response status:", response.status);
+    debug.log("Verify response ok:", response.ok);
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+    debug.log("Verify response data:", data);
+    debug.groupEnd();
+    return data;
   } catch (error) {
-    console.error("Token verification failed:", error);
+    debug.error("Token verification failed:", error);
+    debug.groupEnd();
     throw error;
   }
 };
@@ -85,6 +132,8 @@ const STATUS_TABS = [
 ];
 
 export default function DealsPage() {
+  debug.log("DealsPage component rendering...");
+  
   const router = useRouter();
   const abortControllerRef = useRef(null);
 
@@ -117,8 +166,18 @@ export default function DealsPage() {
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [statusUpdateLoading, setStatusUpdateLoading] = useState(null);
 
+  // Debug: Log state changes
+  useEffect(() => {
+    debug.log("State changed - deals:", deals?.length, "loading:", loading, "error:", error);
+  }, [deals, loading, error]);
+
+  useEffect(() => {
+    debug.log("Auth state changed - isAuthenticated:", isAuthenticated, "admin:", admin?.email);
+  }, [isAuthenticated, admin]);
+
   // Success Toast Helper
   const showSuccess = (message) => {
+    debug.log("Showing success toast:", message);
     toast.success(message, {
       duration: 3000,
       position: "top-right",
@@ -136,6 +195,7 @@ export default function DealsPage() {
 
   // Error Toast Helper
   const showError = (message) => {
+    debug.error("Showing error toast:", message);
     toast.error(message, {
       duration: 4000,
       position: "top-right",
@@ -153,6 +213,7 @@ export default function DealsPage() {
 
   // Loading Toast Helper
   const showLoading = (message) => {
+    debug.log("Showing loading toast:", message);
     return toast.loading(message, {
       position: "top-right",
     });
@@ -160,49 +221,74 @@ export default function DealsPage() {
 
   // ==================== AUTHENTICATION ====================
   const checkAuth = useCallback(async () => {
+    debug.group("checkAuth");
+    debug.log("Starting authentication check...");
+    
     try {
       const sessionType = getCurrentSessionType();
+      debug.log("Current session type:", sessionType);
 
       if (sessionType !== "admin") {
+        debug.warn("Invalid session type:", sessionType);
         if (sessionType === "user") {
           showError("Please login as admin to access this dashboard");
         } else {
           showError("Please login to access dashboard");
         }
         handleAuthFailure();
+        debug.groupEnd();
         return;
       }
 
       const token = getAdminToken();
+      debug.log("Admin token exists:", !!token);
+      debug.log("Token preview:", token ? `${token.substring(0, 30)}...` : "null");
 
       if (!token) {
+        debug.warn("No admin token found");
         showError("Please login to access dashboard");
         handleAuthFailure();
+        debug.groupEnd();
         return;
       }
 
-      if (!isAdminTokenValid()) {
+      const isValid = isAdminTokenValid();
+      debug.log("Token valid:", isValid);
+
+      if (!isValid) {
+        debug.warn("Token is expired or invalid");
         showError("Session expired. Please login again.");
         handleAuthFailure();
+        debug.groupEnd();
         return;
       }
 
       try {
-        await verifyToken(token);
+        debug.log("Verifying token with server...");
+        const verifyResult = await verifyToken(token);
+        debug.log("Token verification result:", verifyResult);
       } catch (verifyError) {
+        debug.error("Token verification error:", verifyError);
         if (verifyError.response?.status === 401) {
           showError("Invalid or expired token. Please login again.");
           handleAuthFailure();
+          debug.groupEnd();
           return;
         }
+        // Continue if verification fails for other reasons (network etc)
+        debug.warn("Continuing despite verification error...");
       }
 
       try {
+        debug.log("Decoding token payload...");
         const payload = JSON.parse(atob(token.split(".")[1]));
+        debug.log("Token payload:", payload);
 
         if (payload.userType !== "admin") {
+          debug.warn("Invalid userType in token:", payload.userType);
           showError("Invalid session type. Please login as admin.");
           handleAuthFailure();
+          debug.groupEnd();
           return;
         }
 
@@ -215,22 +301,27 @@ export default function DealsPage() {
           avatar: null,
         };
 
+        debug.log("Admin data extracted:", adminData);
         setAdmin(adminData);
         setIsAuthenticated(true);
         setAuthLoading(false);
+        debug.log("Authentication successful!");
       } catch (e) {
-        console.error("Token decode error:", e);
+        debug.error("Token decode error:", e);
         showError("Invalid session. Please login again.");
         handleAuthFailure();
       }
     } catch (error) {
-      console.error("Auth check error:", error);
+      debug.error("Auth check error:", error);
       showError("Authentication failed. Please login again.");
       handleAuthFailure();
     }
+    
+    debug.groupEnd();
   }, []);
 
   const handleAuthFailure = useCallback(() => {
+    debug.log("Handling auth failure - logging out...");
     logoutAll();
     setAdmin(null);
     setIsAuthenticated(false);
@@ -239,21 +330,28 @@ export default function DealsPage() {
   }, []);
 
   const handleLogout = useCallback(async () => {
+    debug.group("handleLogout");
+    debug.log("Starting logout process...");
+    
     setLogoutLoading(true);
     const logoutToast = showLoading("Logging out...");
     
     try {
       const token = getAdminToken();
+      debug.log("Calling logout API...");
       
       await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
+      }).catch((err) => {
+        debug.warn("Logout API error (ignored):", err);
+      });
       
       toast.dismiss(logoutToast);
       showSuccess("Logged out successfully");
+      debug.log("Logout successful");
     } catch (err) {
-      console.error("Logout error:", err);
+      debug.error("Logout error:", err);
       toast.dismiss(logoutToast);
       showError("Logout failed. Please try again.");
     } finally {
@@ -263,47 +361,79 @@ export default function DealsPage() {
       window.location.href = "/admin/login";
       setLogoutLoading(false);
     }
+    
+    debug.groupEnd();
   }, []);
 
   // API Helper
   const apiRequest = useCallback(async (endpoint, options = {}) => {
+    debug.group(`apiRequest: ${endpoint}`);
+    debug.log("Options:", options);
+    
     const token = getAdminToken();
+    debug.log("Token exists:", !!token);
 
     if (!token) {
+      debug.error("No token available");
       window.location.href = "/admin/login";
       throw new Error("Please login to continue");
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        ...options.headers,
-      },
-    });
+    const fullUrl = `${API_BASE_URL}${endpoint}`;
+    debug.log("Full URL:", fullUrl);
 
-    if (response.status === 401) {
-      logoutAll();
-      window.location.href = "/admin/login";
-      throw new Error("Session expired. Please login again.");
+    try {
+      const response = await fetch(fullUrl, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          ...options.headers,
+        },
+      });
+
+      debug.log("Response status:", response.status);
+      debug.log("Response ok:", response.ok);
+
+      if (response.status === 401) {
+        debug.error("Unauthorized - redirecting to login");
+        logoutAll();
+        window.location.href = "/admin/login";
+        throw new Error("Session expired. Please login again.");
+      }
+
+      if (!response.ok) {
+        const error = await response
+          .json()
+          .catch(() => ({ message: "Network error" }));
+        debug.error("API error response:", error);
+        throw new Error(error.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      debug.log("API response data:", data);
+      debug.groupEnd();
+      return data;
+    } catch (error) {
+      debug.error("API request error:", error);
+      debug.groupEnd();
+      throw error;
     }
-
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ message: "Network error" }));
-      throw new Error(error.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
   }, []);
 
   // ==================== FETCH DEALS ====================
   const fetchDeals = useCallback(async () => {
-    if (!isAuthenticated) return;
+    debug.group("fetchDeals");
+    debug.log("isAuthenticated:", isAuthenticated);
+    
+    if (!isAuthenticated) {
+      debug.warn("Not authenticated, skipping fetch");
+      debug.groupEnd();
+      return;
+    }
 
     if (abortControllerRef.current) {
+      debug.log("Aborting previous request...");
       abortControllerRef.current.abort();
     }
     abortControllerRef.current = new AbortController();
@@ -319,49 +449,78 @@ export default function DealsPage() {
       if (activeTab !== "all") params.append("status", activeTab);
       if (search.trim()) params.append("search", search);
 
-      const data = await apiRequest(`/api/v1/deals?${params}`);
+      const queryString = params.toString();
+      debug.log("Query params:", queryString);
+
+      const data = await apiRequest(`/api/v1/deals?${queryString}`);
 
       toast.dismiss(loadingToast);
       
+      debug.log("Fetch deals response:", data);
+      debug.log("Response success:", data.success);
+      
       if (data.success) {
         const dealsList = data.data || data.deals || [];
+        debug.log("Deals list length:", dealsList.length);
+        debug.table(dealsList.slice(0, 5)); // Show first 5 deals in table
+        
         setDeals(dealsList);
         setTotal(data.pagination?.total || data.total || dealsList.length);
         setTotalPages(data.pagination?.totalPages || Math.ceil((data.total || dealsList.length) / showCount));
         
+        debug.log("Total:", data.pagination?.total || data.total);
+        debug.log("Total pages:", data.pagination?.totalPages);
+        
         if (dealsList.length === 0) {
+          debug.warn("No deals found");
           showError("No deals found");
         }
+      } else {
+        debug.error("API returned success: false");
       }
     } catch (err) {
       if (err.name !== "AbortError") {
-        console.error("Error fetching deals:", err);
+        debug.error("Error fetching deals:", err);
         setError(err.message);
         showError("Failed to load deals");
+      } else {
+        debug.log("Request was aborted");
       }
     } finally {
       setLoading(false);
+      debug.groupEnd();
     }
   }, [isAuthenticated, currentPage, showCount, activeTab, search, apiRequest]);
 
   // ==================== FETCH STATS ====================
   const fetchStats = useCallback(async () => {
+    debug.group("fetchStats");
+    
     try {
       const data = await apiRequest("/api/v1/deals/stats");
       
+      debug.log("Stats response:", data);
+      
       if (data.success) {
-        setStats(data.stats || data.data || {});
+        const statsData = data.stats || data.data || {};
+        debug.log("Stats data:", statsData);
+        setStats(statsData);
       }
     } catch (err) {
-      console.error("Error fetching stats:", err);
+      debug.error("Error fetching stats:", err);
     }
+    
+    debug.groupEnd();
   }, [apiRequest]);
 
+  // ==================== EFFECTS ====================
   useEffect(() => {
+    debug.log("Running initial auth check effect...");
     checkAuth();
   }, [checkAuth]);
 
   useEffect(() => {
+    debug.log("Auth/fetch effect - isAuthenticated:", isAuthenticated);
     if (isAuthenticated) {
       fetchDeals();
       fetchStats();
@@ -369,6 +528,7 @@ export default function DealsPage() {
 
     return () => {
       if (abortControllerRef.current) {
+        debug.log("Cleanup: aborting request");
         abortControllerRef.current.abort();
       }
     };
@@ -376,9 +536,11 @@ export default function DealsPage() {
 
   // Search with debounce
   useEffect(() => {
+    debug.log("Search effect triggered, search:", search);
     const timer = setTimeout(() => {
       setCurrentPage(1);
       if (isAuthenticated) {
+        debug.log("Executing debounced search...");
         fetchDeals();
       }
     }, 500);
@@ -387,10 +549,16 @@ export default function DealsPage() {
 
   // ==================== HANDLERS ====================
   const handleDelete = async (id) => {
+    debug.group(`handleDelete: ${id}`);
+    
     const deleteToast = showLoading("Deleting deal...");
     try {
       setDeleteLoading(id);
+      debug.log("Calling delete API...");
+      
       await apiRequest(`/api/v1/deals/${id}`, { method: "DELETE" });
+      
+      debug.log("Delete successful");
       setDeals((prev) => prev.filter((d) => d.id !== id));
       setTotal((prev) => prev - 1);
       
@@ -401,28 +569,35 @@ export default function DealsPage() {
       setDeleteTarget(null);
       fetchStats();
     } catch (err) {
-      console.error("Delete Error:", err);
+      debug.error("Delete Error:", err);
       toast.dismiss(deleteToast);
       showError(err.message || "Error deleting deal");
     } finally {
       setDeleteLoading(null);
+      debug.groupEnd();
     }
   };
 
   const handleDeleteConfirm = () => {
+    debug.log("handleDeleteConfirm - deleteTarget:", deleteTarget);
     if (!deleteTarget) return;
     handleDelete(deleteTarget.id);
   };
 
   const handleStatusUpdate = async (id, newStatus) => {
+    debug.group(`handleStatusUpdate: ${id} -> ${newStatus}`);
+    
     const updateToast = showLoading("Updating status...");
     try {
       setStatusUpdateLoading(id);
+      
+      debug.log("Calling status update API...");
       await apiRequest(`/api/v1/deals/${id}/status`, {
         method: "PATCH",
         body: JSON.stringify({ status: newStatus }),
       });
 
+      debug.log("Status update successful");
       setDeals((prev) =>
         prev.map((d) => (d.id === id ? { ...d, closing_status: newStatus } : d))
       );
@@ -435,44 +610,57 @@ export default function DealsPage() {
       showSuccess(`Status updated to ${newStatus}`);
       fetchStats();
     } catch (err) {
-      console.error("Status Update Error:", err);
+      debug.error("Status Update Error:", err);
       toast.dismiss(updateToast);
       showError(err.message || "Error updating status");
     } finally {
       setStatusUpdateLoading(null);
+      debug.groupEnd();
     }
   };
 
   const handleEdit = (id) => {
+    debug.log("handleEdit:", id);
     window.location.href = `/admin/deals/edit/${id}`;
   };
   
   const handleAdd = () => {
+    debug.log("handleAdd");
     window.location.href = "/admin/deals/add";
   };
   
   const handleView = (id) => {
+    debug.log("handleView:", id);
     window.location.href = `/admin/deals/${id}`;
   };
 
   const handleViewDetail = (deal) => {
+    debug.log("handleViewDetail:", deal);
     setSelectedDeal(deal);
     setShowDetailModal(true);
   };
 
   const handleExport = async () => {
+    debug.group("handleExport");
+    
     const exportToast = showLoading("Exporting deals...");
     try {
       const token = getAdminToken();
+      debug.log("Calling export API...");
+      
       const response = await fetch(`${API_BASE_URL}/api/v1/deals/export?format=csv`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
+      debug.log("Export response status:", response.status);
+
       if (!response.ok) throw new Error("Export failed");
 
       const blob = await response.blob();
+      debug.log("Export blob size:", blob.size);
+      
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -483,9 +671,12 @@ export default function DealsPage() {
       toast.dismiss(exportToast);
       showSuccess("Export completed!");
     } catch (err) {
+      debug.error("Export error:", err);
       toast.dismiss(exportToast);
       showError(err.message || "Export failed");
     }
+    
+    debug.groupEnd();
   };
 
   // ==================== UTILITY FUNCTIONS ====================
@@ -547,10 +738,14 @@ export default function DealsPage() {
 
   // ==================== FILTERED DATA ====================
   const filteredDeals = useMemo(() => {
-    return (deals || []).filter((d) => d && d.id);
+    debug.log("Computing filteredDeals, deals length:", deals?.length);
+    const filtered = (deals || []).filter((d) => d && d.id);
+    debug.log("Filtered deals length:", filtered.length);
+    return filtered;
   }, [deals]);
 
   const toggleColumn = (columnId) => {
+    debug.log("toggleColumn:", columnId);
     setVisibleColumns((prev) => {
       const next = new Set(prev);
       if (next.has(columnId)) {
@@ -565,6 +760,7 @@ export default function DealsPage() {
   const isVisible = (columnId) => visibleColumns.has(columnId);
 
   const toggleSelectAll = () => {
+    debug.log("toggleSelectAll");
     if (selectedDeals.size === filteredDeals.length) {
       setSelectedDeals(new Set());
     } else {
@@ -573,6 +769,7 @@ export default function DealsPage() {
   };
 
   const toggleSelect = (id) => {
+    debug.log("toggleSelect:", id);
     setSelectedDeals((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -582,6 +779,7 @@ export default function DealsPage() {
 
   // ==================== LOADING STATE ====================
   if (authLoading) {
+    debug.log("Rendering auth loading state...");
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Toaster />
@@ -598,8 +796,11 @@ export default function DealsPage() {
   }
 
   if (!isAuthenticated || !admin) {
+    debug.log("Not authenticated or no admin, returning null");
     return null;
   }
+
+  debug.log("Rendering main DealsPage content...");
 
   return (
     <>
@@ -891,6 +1092,7 @@ export default function DealsPage() {
                 <button
                   key={tab.key}
                   onClick={() => {
+                    debug.log("Tab clicked:", tab.key);
                     setActiveTab(tab.key);
                     setCurrentPage(1);
                   }}
@@ -934,7 +1136,10 @@ export default function DealsPage() {
                   Export
                 </button>
                 <button
-                  onClick={fetchDeals}
+                  onClick={() => {
+                    debug.log("Refresh clicked");
+                    fetchDeals();
+                  }}
                   disabled={loading}
                   className="p-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
                   title="Refresh"
@@ -949,7 +1154,10 @@ export default function DealsPage() {
                     type="text"
                     placeholder="Search deals..."
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => {
+                      debug.log("Search input changed:", e.target.value);
+                      setSearch(e.target.value);
+                    }}
                     className="pl-4 pr-10 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-64"
                   />
                   <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-gray-800 hover:bg-gray-700 rounded">
@@ -975,7 +1183,9 @@ export default function DealsPage() {
               <select
                 value={showCount}
                 onChange={(e) => {
-                  setShowCount(Number(e.target.value));
+                  const newCount = Number(e.target.value);
+                  debug.log("Show count changed:", newCount);
+                  setShowCount(newCount);
                   setCurrentPage(1);
                 }}
                 className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -1087,123 +1297,129 @@ export default function DealsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredDeals.map((deal) => (
-                      <tr
-                        key={deal.id}
-                        className="border-b border-gray-200 hover:bg-gray-50"
-                      >
-                        <td className="px-4 py-3">
-                          <input
-                            type="checkbox"
-                            checked={selectedDeals.has(deal.id)}
-                            onChange={() => toggleSelect(deal.id)}
-                            className="w-4 h-4 rounded border-gray-300"
-                          />
-                        </td>
-                        {isVisible("id") && (
+                    {filteredDeals.map((deal, index) => {
+                      if (index === 0) {
+                        debug.log("Rendering first deal row:", deal);
+                      }
+                      return (
+                        <tr
+                          key={deal.id}
+                          className="border-b border-gray-200 hover:bg-gray-50"
+                        >
                           <td className="px-4 py-3">
-                            <button
-                              onClick={() => handleViewDetail(deal)}
-                              className="text-blue-600 hover:underline text-sm font-medium font-mono"
-                            >
-                              #{deal.id}
-                            </button>
+                            <input
+                              type="checkbox"
+                              checked={selectedDeals.has(deal.id)}
+                              onChange={() => toggleSelect(deal.id)}
+                              className="w-4 h-4 rounded border-gray-300"
+                            />
                           </td>
-                        )}
-                        {isVisible("closing_name") && (
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={() => handleEdit(deal.id)}
-                              className="text-sm text-gray-800 font-medium hover:text-blue-600 text-left max-w-[180px] truncate block"
-                              title={deal.closing_name}
-                            >
-                              {deal.closing_name || "Untitled Deal"}
-                            </button>
+                          {isVisible("id") && (
+                            <td className="px-4 py-3">
+                              <button
+                                onClick={() => handleViewDetail(deal)}
+                                className="text-blue-600 hover:underline text-sm font-medium font-mono"
+                              >
+                                #{deal.id}
+                              </button>
+                            </td>
+                          )}
+                          {isVisible("closing_name") && (
+                            <td className="px-4 py-3">
+                              <button
+                                onClick={() => handleEdit(deal.id)}
+                                className="text-sm text-gray-800 font-medium hover:text-blue-600 text-left max-w-[180px] truncate block"
+                                title={deal.closing_name}
+                              >
+                                {deal.closing_name || "Untitled Deal"}
+                              </button>
+                            </td>
+                          )}
+                          {isVisible("status") && (
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(deal.closing_status)}`}>
+                                {getStatusIcon(deal.closing_status)}
+                                {deal.closing_status || "N/A"}
+                              </span>
+                            </td>
+                          )}
+                          {isVisible("buyer") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {safeRender(deal.buyers)}
+                            </td>
+                          )}
+                          {isVisible("seller") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {safeRender(deal.sellers)}
+                            </td>
+                          )}
+                          {isVisible("sales_price") && (
+                            <td className="px-4 py-3 text-sm text-gray-800 font-medium">
+                              {formatCurrency(deal.sales_price)}
+                            </td>
+                          )}
+                          {isVisible("commission") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {formatCurrency(deal.commission)}
+                            </td>
+                          )}
+                          {isVisible("listing_city") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {safeRender(deal.listing_city)}
+                            </td>
+                          )}
+                          {isVisible("developer") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {safeRender(deal.developer)}
+                            </td>
+                          )}
+                          {isVisible("closing_date") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {formatDate(deal.closing_date)}
+                            </td>
+                          )}
+                          {isVisible("created_at") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {formatDate(deal.created_at)}
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-sm">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleViewDetail(deal)}
+                                className="p-1.5 rounded hover:bg-gray-100 text-gray-600"
+                                title="View Details"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleEdit(deal.id)}
+                                className="p-1.5 rounded hover:bg-blue-50 text-blue-600"
+                                title="Edit"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  debug.log("Delete button clicked for deal:", deal.id);
+                                  setDeleteTarget({ type: "single", id: deal.id });
+                                  setShowDeleteModal(true);
+                                }}
+                                disabled={deleteLoading === deal.id}
+                                className="p-1.5 rounded hover:bg-red-50 text-red-600 disabled:opacity-50"
+                                title="Delete"
+                              >
+                                {deleteLoading === deal.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
+                              </button>
+                            </div>
                           </td>
-                        )}
-                        {isVisible("status") && (
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(deal.closing_status)}`}>
-                              {getStatusIcon(deal.closing_status)}
-                              {deal.closing_status || "N/A"}
-                            </span>
-                          </td>
-                        )}
-                        {isVisible("buyer") && (
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {safeRender(deal.buyers)}
-                          </td>
-                        )}
-                        {isVisible("seller") && (
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {safeRender(deal.sellers)}
-                          </td>
-                        )}
-                        {isVisible("sales_price") && (
-                          <td className="px-4 py-3 text-sm text-gray-800 font-medium">
-                            {formatCurrency(deal.sales_price)}
-                          </td>
-                        )}
-                        {isVisible("commission") && (
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {formatCurrency(deal.commission)}
-                          </td>
-                        )}
-                        {isVisible("listing_city") && (
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {safeRender(deal.listing_city)}
-                          </td>
-                        )}
-                        {isVisible("developer") && (
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {safeRender(deal.developer)}
-                          </td>
-                        )}
-                        {isVisible("closing_date") && (
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {formatDate(deal.closing_date)}
-                          </td>
-                        )}
-                        {isVisible("created_at") && (
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {formatDate(deal.created_at)}
-                          </td>
-                        )}
-                        <td className="px-4 py-3 text-sm">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleViewDetail(deal)}
-                              className="p-1.5 rounded hover:bg-gray-100 text-gray-600"
-                              title="View Details"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleEdit(deal.id)}
-                              className="p-1.5 rounded hover:bg-blue-50 text-blue-600"
-                              title="Edit"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setDeleteTarget({ type: "single", id: deal.id });
-                                setShowDeleteModal(true);
-                              }}
-                              disabled={deleteLoading === deal.id}
-                              className="p-1.5 rounded hover:bg-red-50 text-red-600 disabled:opacity-50"
-                              title="Delete"
-                            >
-                              {deleteLoading === deal.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="w-4 h-4" />
-                              )}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1220,14 +1436,20 @@ export default function DealsPage() {
               </div>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setCurrentPage(1)}
+                  onClick={() => {
+                    debug.log("First page clicked");
+                    setCurrentPage(1);
+                  }}
                   disabled={currentPage === 1}
                   className="px-2 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   First
                 </button>
                 <button
-                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  onClick={() => {
+                    debug.log("Previous page clicked");
+                    setCurrentPage((p) => Math.max(p - 1, 1));
+                  }}
                   disabled={currentPage === 1}
                   className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -1248,7 +1470,10 @@ export default function DealsPage() {
                   return (
                     <button
                       key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
+                      onClick={() => {
+                        debug.log("Page clicked:", pageNum);
+                        setCurrentPage(pageNum);
+                      }}
                       className={`px-3 py-1.5 border rounded text-sm ${
                         currentPage === pageNum
                           ? "bg-blue-600 text-white border-blue-600"
@@ -1260,14 +1485,20 @@ export default function DealsPage() {
                   );
                 })}
                 <button
-                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  onClick={() => {
+                    debug.log("Next page clicked");
+                    setCurrentPage((p) => Math.min(p + 1, totalPages));
+                  }}
                   disabled={currentPage === totalPages}
                   className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
                 </button>
                 <button
-                  onClick={() => setCurrentPage(totalPages)}
+                  onClick={() => {
+                    debug.log("Last page clicked");
+                    setCurrentPage(totalPages);
+                  }}
                   disabled={currentPage === totalPages}
                   className="px-2 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >

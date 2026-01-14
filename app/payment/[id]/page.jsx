@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { Suspense, useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
 import toast from "react-hot-toast";
@@ -57,11 +57,10 @@ const utils = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// API SERVICE - All endpoints with withCredentials for cookie auth
+// API SERVICE
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const api = {
-  // Check if user is authenticated
   checkAuth: async () => {
     const response = await axios.get(`${API_URL}/api/v1/users/me`, {
       withCredentials: true,
@@ -69,13 +68,11 @@ const api = {
     return response.data;
   },
 
-  // Get project details
   getProject: async (id) => {
     const response = await axios.get(`${API_URL}/api/v1/projects/${id}`);
     return response.data;
   },
 
-  // Create payment intent - ✅ FIXED URL
   createPaymentIntent: async (data) => {
     const response = await axios.post(
       `${API_URL}/api/v1/payment/create-payment-intent`,
@@ -85,7 +82,6 @@ const api = {
     return response.data;
   },
 
-  // Verify payment - ✅ FIXED URL
   verifyPayment: async (paymentIntentId) => {
     const response = await axios.post(
       `${API_URL}/api/v1/payment/verify-payment`,
@@ -95,6 +91,19 @@ const api = {
     return response.data;
   },
 };
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LOADING COMPONENT FOR SUSPENSE FALLBACK
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+    <div className="text-center">
+      <Loader2 className="w-12 h-12 animate-spin text-gray-400 mx-auto mb-4" />
+      <p className="text-gray-500 text-sm">Loading payment page...</p>
+    </div>
+  </div>
+);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // UI COMPONENTS
@@ -224,7 +233,6 @@ const PaymentTypeSelector = ({ paymentType, setPaymentType, project }) => {
     <div className="space-y-4">
       <h3 className="text-lg font-semibold text-gray-800">Select Payment Option</h3>
 
-      {/* Full Payment */}
       <button
         type="button"
         onClick={() => setPaymentType("full")}
@@ -264,7 +272,6 @@ const PaymentTypeSelector = ({ paymentType, setPaymentType, project }) => {
         </div>
       </button>
 
-      {/* Booking Amount */}
       <button
         type="button"
         onClick={() => setPaymentType("booking")}
@@ -565,20 +572,14 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
   const [error, setError] = useState(null);
   const [intentCreating, setIntentCreating] = useState(false);
 
-  // Validate billing data
   const isBillingValid = billingData.name && billingData.email && billingData.phone;
 
-  // Create payment intent when billing is valid
   useEffect(() => {
     if (!isBillingValid || !amount || clientSecret) return;
 
     const createIntent = async () => {
       setIntentCreating(true);
       setError(null);
-
-      console.log("📤 Creating Payment Intent...");
-      console.log("Amount:", amount);
-      console.log("Project:", project.title);
 
       try {
         const response = await api.createPaymentIntent({
@@ -597,13 +598,10 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
           },
         });
 
-        console.log("📥 Response:", response);
-
         if (response.success) {
           const secret = response.data?.clientSecret || response.clientSecret;
           if (secret) {
             setClientSecret(secret);
-            console.log("✅ Client Secret received!");
           } else {
             throw new Error("No client secret in response");
           }
@@ -611,7 +609,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
           throw new Error(response.message || "Failed to create payment intent");
         }
       } catch (err) {
-        console.error("❌ Payment Intent Error:", err);
         const message = err.response?.data?.message || err.message || "Failed to initialize payment";
         setError(message);
         toast.error(message);
@@ -623,7 +620,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
     createIntent();
   }, [isBillingValid, amount, project, paymentType, billingData, clientSecret]);
 
-  // Handle payment submission
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -645,8 +641,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
     setLoading(true);
     setError(null);
 
-    console.log("💳 Processing Payment...");
-
     try {
       const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(
         clientSecret,
@@ -664,27 +658,21 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
       );
 
       if (stripeError) {
-        console.error("❌ Stripe Error:", stripeError);
         setError(stripeError.message);
         toast.error(stripeError.message);
         return;
       }
 
       if (paymentIntent.status === "succeeded") {
-        console.log("✅ Payment Succeeded! Verifying...");
-
-        // Verify on backend
         const verifyResponse = await api.verifyPayment(paymentIntent.id);
 
         if (verifyResponse.success) {
-          console.log("✅ Payment Verified!");
           onSuccess(paymentIntent.id, verifyResponse.data);
         } else {
           throw new Error("Payment verification failed");
         }
       }
     } catch (err) {
-      console.error("❌ Payment Error:", err);
       const message = err.response?.data?.message || err.message || "Payment failed";
       setError(message);
       toast.error(message);
@@ -693,7 +681,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
     }
   };
 
-  // Card element options
   const cardOptions = {
     style: {
       base: {
@@ -707,7 +694,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
     hidePostalCode: true,
   };
 
-  // Billing not complete
   if (!isBillingValid) {
     return (
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
@@ -719,7 +705,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
     );
   }
 
-  // Intent creating
   if (intentCreating) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -729,7 +714,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
     );
   }
 
-  // Error state
   if (error && !clientSecret) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-xl p-4">
@@ -753,7 +737,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Card Input */}
       <div className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-800">Card Details</h3>
         <div className="px-4 py-4 border-2 border-gray-200 rounded-xl focus-within:border-gray-400 transition-colors bg-white">
@@ -775,7 +758,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
         </div>
       </div>
 
-      {/* Error Display */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
           <AlertCircle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
@@ -783,14 +765,12 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
         </div>
       )}
 
-      {/* Test Card Info */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
         <p className="text-xs text-blue-800">
           <strong>Test Card:</strong> 4242 4242 4242 4242 | Expiry: 12/34 | CVC: 123
         </p>
       </div>
 
-      {/* Submit Button */}
       <button
         type="submit"
         disabled={!stripe || loading || !clientSecret}
@@ -812,7 +792,6 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
         )}
       </button>
 
-      {/* Security Footer */}
       <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
         <ShieldCheck size={14} className="text-green-600" />
         <span>Secured by Stripe • 256-bit SSL Encryption</span>
@@ -822,16 +801,15 @@ const CheckoutForm = ({ project, paymentType, amount, billingData, onSuccess }) 
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MAIN PAGE COMPONENT
+// PAYMENT PAGE CONTENT - Contains useSearchParams
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function PaymentPage() {
+function PaymentPageContent() {
   const { id } = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // State
-  const [status, setStatus] = useState("loading"); // loading | auth-required | error | ready | success
+  const [status, setStatus] = useState("loading");
   const [project, setProject] = useState(null);
   const [user, setUser] = useState(null);
   const [error, setError] = useState(null);
@@ -846,34 +824,24 @@ export default function PaymentPage() {
 
   const [successData, setSuccessData] = useState(null);
 
-  // Calculate amount
   const amount = useMemo(() => {
     if (!project) return 0;
     return paymentType === "booking" ? Math.round(project.price * 0.1) : project.price;
   }, [project, paymentType]);
 
-  // Initialize - Check auth and fetch project
   useEffect(() => {
     const initialize = async () => {
-      console.log("=== PAYMENT PAGE INIT ===");
-      console.log("Project ID:", id);
-
       try {
-        // Step 1: Check Authentication
-        console.log("🔐 Checking auth...");
         const authResponse = await api.checkAuth();
 
         if (!authResponse.success) {
-          console.log("❌ Not authenticated");
           setStatus("auth-required");
           return;
         }
 
         const userData = authResponse.user || authResponse.data;
-        console.log("✅ Authenticated:", userData?.email);
         setUser(userData);
 
-        // Pre-fill billing data
         setBillingData({
           name: userData?.name || userData?.fullName || "",
           email: userData?.email || "",
@@ -881,23 +849,20 @@ export default function PaymentPage() {
           address: "",
         });
 
-        // Step 2: Fetch Project
-        console.log("📦 Fetching project...");
         const projectResponse = await api.getProject(id);
 
         if (!projectResponse.success || !projectResponse.data) {
           throw new Error("Project not found");
         }
 
-        console.log("✅ Project loaded:", projectResponse.data.title);
         setProject(projectResponse.data);
         setStatus("ready");
       } catch (err) {
-        console.error("❌ Init Error:", err);
-
         if (err.response?.status === 401) {
-          // Save redirect URL and go to login
-          sessionStorage.setItem("redirectAfterLogin", `/payment/${id}?type=${searchParams.get("type") || "booking"}`);
+          sessionStorage.setItem(
+            "redirectAfterLogin",
+            `/payment/${id}?type=${searchParams.get("type") || "booking"}`
+          );
           setStatus("auth-required");
         } else {
           setError(err.response?.data?.message || err.message || "Something went wrong");
@@ -909,15 +874,12 @@ export default function PaymentPage() {
     if (id) initialize();
   }, [id, searchParams]);
 
-  // Handle payment success
   const handlePaymentSuccess = useCallback((paymentIntentId, data) => {
-    console.log("🎉 Payment Success!", paymentIntentId);
     setSuccessData({ paymentId: paymentIntentId, ...data });
     setStatus("success");
     toast.success("Payment successful! 🎉");
   }, []);
 
-  // Render based on status
   if (status === "loading") {
     return <LoadingState message="Loading payment details..." />;
   }
@@ -941,11 +903,9 @@ export default function PaymentPage() {
     );
   }
 
-  // Main Payment UI
   return (
     <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4 md:px-6">
       <div className="max-w-6xl mx-auto">
-        {/* Back Button */}
         <button
           onClick={() => router.back()}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-800 mb-6 transition-colors"
@@ -954,7 +914,6 @@ export default function PaymentPage() {
           <span className="text-sm">Back to Project</span>
         </button>
 
-        {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-light text-gray-800 uppercase tracking-wide mb-2">
             Secure Checkout
@@ -963,17 +922,8 @@ export default function PaymentPage() {
           <p className="text-gray-500 text-sm">Complete your payment securely with Stripe</p>
         </div>
 
-        {/* Debug Info - Remove in production */}
-        {process.env.NODE_ENV === "development" && (
-          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl text-sm">
-            <strong>Debug:</strong> User: {user?.email} | Project: {project?.title} | Amount: {amount}
-          </div>
-        )}
-
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* Left - Form */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Payment Type */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <PaymentTypeSelector
                 paymentType={paymentType}
@@ -982,7 +932,6 @@ export default function PaymentPage() {
               />
             </div>
 
-            {/* Billing Details */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <BillingDetails
                 billingData={billingData}
@@ -991,7 +940,6 @@ export default function PaymentPage() {
               />
             </div>
 
-            {/* Payment Form */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <Elements stripe={stripePromise}>
                 <CheckoutForm
@@ -1005,7 +953,6 @@ export default function PaymentPage() {
             </div>
           </div>
 
-          {/* Right - Summary */}
           <div className="lg:col-span-1 space-y-6">
             <ProjectSummary project={project} />
             <OrderSummary project={project} paymentType={paymentType} amount={amount} />
@@ -1014,5 +961,17 @@ export default function PaymentPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN PAGE COMPONENT WITH SUSPENSE BOUNDARY
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export default function PaymentPage() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <PaymentPageContent />
+    </Suspense>
   );
 }

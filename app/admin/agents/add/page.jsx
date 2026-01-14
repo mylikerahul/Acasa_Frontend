@@ -3,67 +3,43 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { ArrowLeft, Upload, X, Loader2 } from "lucide-react"; // Eye/EyeOff removed as password is not in agent model
+import { ArrowLeft, Upload, X, Loader2 } from "lucide-react";
 import {
   getAdminToken,
   isAdminTokenValid,
   getCurrentSessionType,
   logoutAll,
-} from "../../../../utils/auth"; // Adjust path as necessary
-import AdminNavbar from "../../dashboard/header/DashboardNavbar"; // Adjust path as necessary
+} from "../../../../utils/auth";
+import AdminNavbar from "../../dashboard/header/DashboardNavbar";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"; // Ensure fallback
-
-// ==================== TOKEN VERIFICATION (re-used from AgentsPage) ====================
-const verifyToken = async (token) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error("Unauthorized");
-      }
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("Token verification failed:", error);
-    throw error;
-  }
-};
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function AddAgentPage() {
   const router = useRouter();
 
-  // Auth State
   const [admin, setAdmin] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [logoutLoading, setLogoutLoading] = useState(false);
 
-  // Form State
   const [loading, setLoading] = useState(false);
-  // const [showPassword, setShowPassword] = useState(false); // Password field removed, so this state is not needed
+  const [avatar, setAvatar] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState(null);
+  const [errors, setErrors] = useState({});
+
   const [form, setForm] = useState({
-    // Fields matching agent.model.js schema
     title: "",
     slug: "",
     sub_title: "",
-    name: "", // Full name, derived or direct
+    name: "",
     first_name: "",
     last_name: "",
     nationality: "",
     orn_number: "",
     orn: "",
     brn: "",
-    mobile: "", // Maps from previous 'mobile_phone'
-    designation: "", // Maps from previous 'job_title'
+    mobile: "",
+    designation: "",
     languages: "",
     aos: "",
     company: "",
@@ -72,14 +48,9 @@ export default function AddAgentPage() {
     seo_title: "",
     seo_keywork: "",
     seo_description: "",
-    status: 1, // Default to active
+    status: 1,
   });
 
-  const [avatar, setAvatar] = useState(null);
-  const [avatarPreview, setAvatarPreview] = useState(null);
-  const [errors, setErrors] = useState({});
-
-  // ==================== TOAST HELPERS ====================
   const showSuccess = (message) => {
     toast.success(message, { duration: 3000, position: "top-right" });
   };
@@ -88,31 +59,44 @@ export default function AddAgentPage() {
     toast.error(message, { duration: 4000, position: "top-right" });
   };
 
-  const showLoadingToast = (message) => {
-    return toast.loading(message, { position: "top-right" });
+  const verifyToken = async (token) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("Unauthorized");
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      throw error;
+    }
   };
 
-
-  // ==================== AUTHENTICATION (re-used from AgentsPage) ====================
   const checkAuth = useCallback(async () => {
     try {
       const sessionType = getCurrentSessionType();
 
       if (sessionType !== "admin") {
-        showError(sessionType === "user" ? "Please login as admin to access this page" : "Please login to access this page");
         handleAuthFailure();
         return;
       }
 
       const token = getAdminToken();
       if (!token) {
-        showError("Please login to access this page");
         handleAuthFailure();
         return;
       }
 
       if (!isAdminTokenValid()) {
-        showError("Session expired. Please login again.");
         handleAuthFailure();
         return;
       }
@@ -120,11 +104,6 @@ export default function AddAgentPage() {
       try {
         await verifyToken(token);
       } catch (verifyError) {
-        if (verifyError.message === "Unauthorized") {
-          showError("Invalid or expired token. Please login again.");
-        } else {
-          showError("Token verification failed. Please login again.");
-        }
         handleAuthFailure();
         return;
       }
@@ -132,30 +111,22 @@ export default function AddAgentPage() {
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));
         if (payload.userType !== "admin") {
-          showError("Invalid session type. Please login as admin.");
           handleAuthFailure();
           return;
         }
 
-        const adminData = {
+        setAdmin({
           id: payload.id,
           name: payload.name,
           email: payload.email,
           role: payload.role || "admin",
           userType: payload.userType,
-          avatar: null,
-        };
-
-        setAdmin(adminData);
+        });
         setIsAuthenticated(true);
       } catch (e) {
-        console.error("Token decode error:", e);
-        showError("Invalid session. Please login again.");
         handleAuthFailure();
       }
     } catch (error) {
-      console.error("Auth check error:", error);
-      showError("Authentication failed. Please login again.");
       handleAuthFailure();
     } finally {
       setAuthLoading(false);
@@ -171,7 +142,7 @@ export default function AddAgentPage() {
 
   const handleLogout = useCallback(async () => {
     setLogoutLoading(true);
-    const logoutToastId = showLoadingToast("Logging out...");
+    const logoutToastId = toast.loading("Logging out...");
     
     try {
       const token = getAdminToken();
@@ -183,9 +154,7 @@ export default function AddAgentPage() {
       toast.dismiss(logoutToastId);
       showSuccess("Logged out successfully");
     } catch (err) {
-      console.error("Logout error:", err);
       toast.dismiss(logoutToastId);
-      showError("Logout failed. Please try again.");
     } finally {
       logoutAll();
       setAdmin(null);
@@ -199,8 +168,6 @@ export default function AddAgentPage() {
     checkAuth();
   }, [checkAuth]);
 
-
-  // ==================== FORM HELPERS ====================
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => ({ ...prev, [field]: "" }));
@@ -210,8 +177,10 @@ export default function AddAgentPage() {
     const file = e.target.files[0];
     if (!file) return;
 
+    console.log("📸 Selected File:", file); // DEBUG
+
     if (!file.type.startsWith("image/")) {
-      showError("Please upload an image file (JPG, PNG, or WEBP)");
+      showError("Please upload an image file");
       return;
     }
 
@@ -224,10 +193,11 @@ export default function AddAgentPage() {
     const reader = new FileReader();
     reader.onload = (ev) => setAvatarPreview(ev.target.result);
     reader.readAsDataURL(file);
-    showSuccess("Avatar selected");
+    showSuccess("Image selected");
   };
 
   const removeAvatar = () => {
+    console.log("🗑️ Avatar Removed"); // DEBUG
     setAvatar(null);
     setAvatarPreview(null);
   };
@@ -235,18 +205,15 @@ export default function AddAgentPage() {
   const validateForm = () => {
     const newErrors = {};
 
-    // Validate email
     if (!form.email.trim()) {
       newErrors.email = "Email is required";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       newErrors.email = "Invalid email format";
     }
 
-    // Validate name (either first_name + last_name or explicit 'name' field)
     const effectiveName = form.name.trim() || `${form.first_name.trim()} ${form.last_name.trim()}`.trim();
     if (!effectiveName) {
-        newErrors.first_name = "Agent's full name (or first name) is required";
-        newErrors.name = "Agent's full name (or first name) is required";
+        newErrors.first_name = "First name is required";
     }
 
     setErrors(newErrors);
@@ -254,80 +221,77 @@ export default function AddAgentPage() {
   };
 
   const handleSubmit = async () => {
+    console.log("🚀 handleSubmit initiated"); // DEBUG
+
     const token = getAdminToken();
 
     if (!token) {
-      showError("Please login to continue");
       router.push("/admin/login");
       return;
     }
 
     if (!validateForm()) {
+      console.warn("⚠️ Validation Failed", errors); // DEBUG
       showError("Please fill all required fields correctly.");
-      // Optional: scroll to first error
-      // const firstErrorField = Object.keys(errors)[0];
-      // if (firstErrorField) {
-      //   document.getElementById(firstErrorField)?.scrollIntoView({ behavior: 'smooth' });
-      // }
       return;
     }
 
     setLoading(true);
-    const submitToastId = showLoadingToast("Creating agent...");
+    const submitToastId = toast.loading("Creating agent...");
 
     try {
       const formData = new FormData();
-
-      // Determine the 'name' field for the backend
+      
       const effectiveName = form.name.trim() || `${form.first_name.trim()} ${form.last_name.trim()}`.trim();
       formData.append("name", effectiveName);
 
-      // Append all form fields to formData, handling empty strings as null
       Object.entries(form).forEach(([key, value]) => {
-        // Skip 'name' as it's handled above.
-        // Skip first_name/last_name if form.name is explicitly set, otherwise append.
         if (key === 'name') return;
         if ((key === 'first_name' || key === 'last_name') && form.name.trim()) return;
 
-        // Ensure empty strings are sent as null for non-required fields where applicable
-        if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
-          // Do not append, or append empty string which backend should handle as null
-          // Backend controller should convert empty strings to null.
-          // For FormData, not appending is often equivalent to null for DB.
-          return;
+        if (value !== null && value !== undefined && String(value).trim() !== '') {
+          formData.append(key, String(value).trim());
         }
-        formData.append(key, String(value).trim());
       });
       
-      // If an avatar is selected, append it under the key 'image' as expected by multer middleware
       if (avatar) {
         formData.append("image", avatar);
+        console.log("🖼️ Avatar attached to FormData"); // DEBUG
+      } else {
+        console.log("⚠️ No Avatar attached"); // DEBUG
       }
 
-      // Determine the correct endpoint based on whether an image is being uploaded
-      const endpoint = avatar ? `/api/agents/admin/create-with-image` : `/api/agents/admin/create`;
+      // --- DEBUGGING FORM DATA ---
+      console.log("📋 FormData Entries to be sent:");
+      for (let pair of formData.entries()) {
+        console.log(pair[0] + ', ' + pair[1]); 
+      }
+      // ---------------------------
+
+      console.log(`📡 Sending request to: ${API_BASE_URL}/api/v1/agents`); // DEBUG
 
       const response = await fetch(
-        `${API_BASE_URL}${endpoint}`,
+        `${API_BASE_URL}/api/v1/agents`,
         {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
-            // 'Content-Type': 'multipart/form-data' is NOT explicitly set here.
-            // When using FormData with fetch, the browser automatically sets the correct
-            // 'Content-Type' header including the boundary, which is crucial for file uploads.
+            // NOTE: Content-Type header must NOT be set manually for FormData
           },
           body: formData,
         }
       );
 
+      console.log("📩 Response Status:", response.status); // DEBUG
+
       if (response.status === 401) {
         logoutAll();
         router.push("/admin/login");
-        throw new Error("Session expired. Please login again.");
+        throw new Error("Session expired");
       }
 
       const responseData = await response.json();
+      console.log("📦 Response Data:", responseData); // DEBUG
 
       if (!response.ok) {
         throw new Error(responseData.message || `HTTP error! Status: ${response.status}`);
@@ -335,13 +299,13 @@ export default function AddAgentPage() {
 
       if (responseData.success) {
         toast.dismiss(submitToastId);
-        showSuccess(responseData.message || "Agent created successfully");
-        router.push("/admin/agents"); // Redirect to agents listing page
+        showSuccess("Agent created successfully");
+        router.push("/admin/agents");
       } else {
         throw new Error(responseData.message || "Failed to create agent.");
       }
     } catch (error) {
-      console.error("❌ Error creating agent:", error);
+      console.error("❌ Error in handleSubmit:", error); // DEBUG
       toast.dismiss(submitToastId);
       showError(error.message || "Failed to create agent.");
     } finally {
@@ -349,15 +313,12 @@ export default function AddAgentPage() {
     }
   };
 
-  // ==================== LOADING & AUTH PROTECTION ====================
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-gray-600 font-medium">
-            Verifying authentication...
-          </p>
+          <p className="mt-4 text-gray-600 font-medium">Verifying authentication...</p>
         </div>
       </div>
     );
@@ -376,7 +337,6 @@ export default function AddAgentPage() {
 
       <div className="min-h-screen bg-gray-100 pt-20 pb-10">
         <div className="max-w-4xl mx-auto px-4">
-          {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-gray-800">Add Agent</h1>
 
@@ -400,10 +360,8 @@ export default function AddAgentPage() {
             </div>
           </div>
 
-          {/* Form */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Profile Picture (Avatar) */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Profile Picture
@@ -448,12 +406,9 @@ export default function AddAgentPage() {
                 </div>
                 <p className="mt-2 text-xs text-gray-500">
                   JPG, PNG or WEBP. Max size 5MB.
-                  <br/>
-                  <span className="text-orange-600">Note: This will be saved in 'cuid' field temporarily.</span>
                 </p>
               </div>
 
-              {/* First Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   First Name <span className="text-red-500">*</span>
@@ -472,7 +427,6 @@ export default function AddAgentPage() {
                 )}
               </div>
 
-              {/* Last Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Last Name
@@ -481,31 +435,11 @@ export default function AddAgentPage() {
                   type="text"
                   value={form.last_name}
                   onChange={(e) => handleChange("last_name", e.target.value)}
-                  className={`w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 border-gray-300`}
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter last name"
                 />
               </div>
 
-              {/* OR Full Name (Alternative if first_name/last_name not preferred) */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Full Name (Optional, overrides First/Last Name if set)
-                </label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => handleChange("name", e.target.value)}
-                  className={`w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    errors.name ? "border-red-300" : "border-gray-300"
-                  }`}
-                  placeholder="e.g., John Doe"
-                />
-                {errors.name && !errors.first_name && ( // Only show if first_name error isn't already showing
-                  <p className="mt-1 text-sm text-red-600">{errors.name}</p>
-                )}
-              </div>
-
-              {/* Email */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Email <span className="text-red-500">*</span>
@@ -524,52 +458,6 @@ export default function AddAgentPage() {
                 )}
               </div>
 
-              {/* Title */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Title
-                </label>
-                <input
-                  type="text"
-                  value={form.title}
-                  onChange={(e) => handleChange("title", e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Mr. / Mrs. / Ms."
-                />
-              </div>
-
-              {/* Sub Title */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sub Title
-                </label>
-                <input
-                  type="text"
-                  value={form.sub_title}
-                  onChange={(e) => handleChange("sub_title", e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Expert Real Estate Agent"
-                />
-              </div>
-
-              {/* Slug */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Slug (Optional - auto-generated if empty)
-                </label>
-                <input
-                  type="text"
-                  value={form.slug}
-                  onChange={(e) => handleChange("slug", e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="john-doe-real-estate"
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  Unique identifier for URLs.
-                </p>
-              </div>
-
-              {/* Mobile */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Mobile
@@ -583,21 +471,32 @@ export default function AddAgentPage() {
                 />
               </div>
 
-              {/* Nationality */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nationality
+                  Title
                 </label>
                 <input
                   type="text"
-                  value={form.nationality}
-                  onChange={(e) => handleChange("nationality", e.target.value)}
+                  value={form.title}
+                  onChange={(e) => handleChange("title", e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter nationality"
+                  placeholder="Mr. / Mrs. / Ms."
                 />
               </div>
 
-              {/* Designation (was Job Title) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Sub Title
+                </label>
+                <input
+                  type="text"
+                  value={form.sub_title}
+                  onChange={(e) => handleChange("sub_title", e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Expert Real Estate Agent"
+                />
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Designation
@@ -611,7 +510,6 @@ export default function AddAgentPage() {
                 />
               </div>
 
-              {/* Company */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Company
@@ -625,21 +523,32 @@ export default function AddAgentPage() {
                 />
               </div>
 
-              {/* Languages */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Languages (Comma separated)
+                  Nationality
+                </label>
+                <input
+                  type="text"
+                  value={form.nationality}
+                  onChange={(e) => handleChange("nationality", e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter nationality"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Languages
                 </label>
                 <input
                   type="text"
                   value={form.languages}
                   onChange={(e) => handleChange("languages", e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="English, Arabic, Hindi"
+                  placeholder="English, Arabic"
                 />
               </div>
 
-              {/* ORN Number */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   ORN Number
@@ -653,21 +562,6 @@ export default function AddAgentPage() {
                 />
               </div>
 
-              {/* ORN (If different from ORN_number) */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  ORN (Optional, if separate from ORN Number)
-                </label>
-                <input
-                  type="text"
-                  value={form.orn}
-                  onChange={(e) => handleChange("orn", e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Alternative ORN"
-                />
-              </div>
-
-              {/* BRN */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   BRN
@@ -681,83 +575,20 @@ export default function AddAgentPage() {
                 />
               </div>
 
-              {/* Area of Specialization (AOS) */}
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Area of Specialization (AOS)
+                  Slug (Optional)
                 </label>
-                <textarea
-                  value={form.aos}
-                  onChange={(e) => handleChange("aos", e.target.value)}
-                  rows="3"
+                <input
+                  type="text"
+                  value={form.slug}
+                  onChange={(e) => handleChange("slug", e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Residential sales, Commercial leasing, Off-plan properties..."
-                ></textarea>
+                  placeholder="Auto-generated if empty"
+                />
               </div>
 
-              {/* Descriptions */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Descriptions
-                </label>
-                <textarea
-                  value={form.descriptions}
-                  onChange={(e) => handleChange("descriptions", e.target.value)}
-                  rows="5"
-                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Detailed description of the agent's profile and experience."
-                ></textarea>
-              </div>
-
-              {/* SEO Fields */}
-              <div className="md:col-span-2">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b pb-2">
-                  SEO Information
-                </h3>
-                {/* SEO Title */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    SEO Title
-                  </label>
-                  <input
-                    type="text"
-                    value={form.seo_title}
-                    onChange={(e) => handleChange("seo_title", e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="SEO friendly title for the agent page"
-                  />
-                </div>
-                {/* SEO Keywords */}
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    SEO Keywords (Comma separated)
-                  </label>
-                  <input
-                    type="text"
-                    value={form.seo_keywork}
-                    onChange={(e) => handleChange("seo_keywork", e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="agent name, real estate, dubai, properties"
-                  />
-                </div>
-                {/* SEO Description */}
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    SEO Description
-                  </label>
-                  <textarea
-                    value={form.seo_description}
-                    onChange={(e) => handleChange("seo_description", e.target.value)}
-                    rows="3"
-                    className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="A brief, keyword-rich summary of the agent for search engines."
-                  ></textarea>
-                </div>
-              </div>
-
-
-              {/* Status */}
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Status
                 </label>
@@ -769,6 +600,77 @@ export default function AddAgentPage() {
                   <option value={1}>Active</option>
                   <option value={0}>Inactive</option>
                 </select>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Area of Specialization (AOS)
+                </label>
+                <textarea
+                  value={form.aos}
+                  onChange={(e) => handleChange("aos", e.target.value)}
+                  rows="3"
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Residential sales, Commercial leasing..."
+                ></textarea>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Descriptions
+                </label>
+                <textarea
+                  value={form.descriptions}
+                  onChange={(e) => handleChange("descriptions", e.target.value)}
+                  rows="5"
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Detailed description of the agent"
+                ></textarea>
+              </div>
+
+              <div className="md:col-span-2">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b pb-2">
+                  SEO Information
+                </h3>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    SEO Title
+                  </label>
+                  <input
+                    type="text"
+                    value={form.seo_title}
+                    onChange={(e) => handleChange("seo_title", e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="SEO title"
+                  />
+                </div>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    SEO Keywords
+                  </label>
+                  <input
+                    type="text"
+                    value={form.seo_keywork}
+                    onChange={(e) => handleChange("seo_keywork", e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Comma separated keywords"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    SEO Description
+                  </label>
+                  <textarea
+                    value={form.seo_description}
+                    onChange={(e) => handleChange("seo_description", e.target.value)}
+                    rows="3"
+                    className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="SEO description"
+                  ></textarea>
+                </div>
               </div>
             </div>
           </div>

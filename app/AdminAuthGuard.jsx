@@ -1,84 +1,83 @@
+// AdminAuthGuard.jsx - Simplified version
+
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Shield, Loader2 } from 'lucide-react';
-import { useAdminAuth } from '../hooks/useAdminAuth';
+import { getAdminToken, isAdminTokenValid, clearAdminTokens } from '../utils/auth';
 
-// Public routes (no auth required)
 const publicRoutes = ['/admin/login', '/admin/forgot-password'];
 
 export default function AdminAuthGuard({ children }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isAuthenticated, loading } = useAdminAuth();
+  const [status, setStatus] = useState('checking'); // 'checking' | 'authenticated' | 'unauthenticated'
+  const checkDone = useRef(false);
 
   const isPublicRoute = publicRoutes.includes(pathname);
 
   useEffect(() => {
-    if (loading) return;
+    if (checkDone.current) return;
+    checkDone.current = true;
 
-    // Not authenticated & trying to access protected route
-    if (!isAuthenticated && !isPublicRoute) {
-      router.push(`/admin/login?redirect=${encodeURIComponent(pathname)}`);
-      return;
-    }
-    
-    // Authenticated & trying to access login page
-    if (isAuthenticated && isPublicRoute) {
-      router.push('/admin/dashboard');
-    }
-  }, [isAuthenticated, loading, isPublicRoute, pathname, router]);
+    const check = () => {
+      const token = getAdminToken();
+      const isValid = token && isAdminTokenValid();
 
-  // Enhanced loading UI
-  if (loading) {
+      console.log(`AuthGuard [${pathname}]:`, { hasToken: !!token, isValid, isPublicRoute });
+
+      if (isPublicRoute) {
+        // On login page
+        if (isValid) {
+          // Already logged in, redirect to dashboard
+          window.location.replace('/admin/dashboard');
+          return;
+        }
+        // Show login page
+        setStatus('unauthenticated');
+        return;
+      }
+
+      // Protected route
+      if (!isValid) {
+        // Not logged in, redirect to login
+        clearAdminTokens();
+        window.location.replace('/admin/login');
+        return;
+      }
+
+      // Logged in, show protected content
+      setStatus('authenticated');
+    };
+
+    // Small delay for hydration
+    setTimeout(check, 50);
+  }, [pathname, isPublicRoute]);
+
+  // Still checking
+  if (status === 'checking') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-gray-100 to-gray-50 flex items-center justify-center p-4">
-        <div className="text-center">
-          {/* Animated Shield Icon */}
-          <div className="relative mb-6">
-            <div className="absolute inset-0 bg-blue-500/20 blur-2xl rounded-full animate-pulse" />
-            <Shield className="w-16 h-16 text-blue-600 mx-auto relative animate-[pulse_1.5s_ease-in-out_infinite]" />
-          </div>
-
-          {/* Spinner */}
-          <div className="relative mb-4">
-            <Loader2 className="w-10 h-10 text-blue-600 animate-spin mx-auto" />
-          </div>
-
-          {/* Text */}
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">
-            Verifying Access
-          </h3>
-          <p className="text-sm text-gray-500 max-w-xs mx-auto">
-            Please wait while we check your authentication status...
-          </p>
-
-          {/* Progress dots */}
-          <div className="flex items-center justify-center gap-2 mt-6">
-            <span className="w-2 h-2 bg-blue-600 rounded-full animate-[bounce_1s_ease-in-out_0s_infinite]" />
-            <span className="w-2 h-2 bg-blue-600 rounded-full animate-[bounce_1s_ease-in-out_0.2s_infinite]" />
-            <span className="w-2 h-2 bg-blue-600 rounded-full animate-[bounce_1s_ease-in-out_0.4s_infinite]" />
-          </div>
-        </div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
       </div>
     );
   }
 
-  // Public route - show content immediately
-  if (isPublicRoute) {
+  // Public route (login page)
+  if (isPublicRoute && status === 'unauthenticated') {
     return <>{children}</>;
   }
 
-  // Protected route - show only if authenticated
-  if (isAuthenticated) {
+  // Protected route with auth
+  if (!isPublicRoute && status === 'authenticated') {
     return <>{children}</>;
   }
 
-  // Not authenticated - show minimal loading while redirecting
+  // Fallback loading (during redirect)
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
+      <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
     </div>
   );
 }

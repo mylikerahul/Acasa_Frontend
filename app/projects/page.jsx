@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import axios from "axios";
 import toast from "react-hot-toast";
 import {
@@ -180,34 +180,28 @@ const useProjects = (filters) => {
         page: filters.page || 1,
       };
 
-      // Add search
       if (filters.search) {
         params.search = filters.search;
       }
 
-      // Add bedroom filter
       if (filters.bedrooms) {
         params.bedrooms = filters.bedrooms;
       }
 
-      // Add price range
       if (filters.priceRange) {
         const [min, max] = filters.priceRange.split("-");
         if (min) params.price_min = min;
         if (max) params.price_max = max;
       }
 
-      // Add location filter
       if (filters.location) {
         params.location = filters.location;
       }
 
-      // Add developer filter
       if (filters.developer) {
         params.developer_id = filters.developer;
       }
 
-      // Add sorting
       if (filters.sort) {
         switch (filters.sort) {
           case "newest":
@@ -237,16 +231,11 @@ const useProjects = (filters) => {
         }
       }
 
-      console.log("🔍 Fetching projects with params:", params);
-
       const { data } = await axios.get(`${API_URL}/api/v1/projects`, {
         params,
         timeout: 15000,
       });
 
-      console.log("📦 API Response:", data);
-
-      // Handle different response structures
       let projectsList = [];
       let totalCount = 0;
 
@@ -261,11 +250,9 @@ const useProjects = (filters) => {
         totalCount = data.total || data.count || projectsList.length;
       }
 
-      // Filter active projects
       const activeProjects = projectsList.filter((p) => p.status === 1);
       const transformedProjects = activeProjects.map(utils.transformProject);
 
-      // Client-side sorting if API doesn't support it
       if (filters.sort) {
         transformedProjects.sort((a, b) => {
           switch (filters.sort) {
@@ -287,7 +274,6 @@ const useProjects = (filters) => {
         });
       }
 
-      // Client-side filtering if needed
       let filteredProjects = [...transformedProjects];
 
       if (filters.search) {
@@ -596,7 +582,6 @@ const FiltersBar = ({
   onToggleMobileFilters,
 }) => (
   <div className="space-y-4 mb-8">
-    {/* Desktop Filters */}
     <div className="hidden lg:flex items-center gap-4">
       <SearchBar
         value={filters.search}
@@ -621,7 +606,6 @@ const FiltersBar = ({
       <ViewToggle view={view} onChange={onViewChange} />
     </div>
 
-    {/* Mobile Filters */}
     <div className="lg:hidden space-y-4">
       <div className="flex items-center gap-3">
         <SearchBar
@@ -668,7 +652,6 @@ const FiltersBar = ({
       )}
     </div>
 
-    {/* Active Filters Tags */}
     <ActiveFilters
       filters={filters}
       onRemove={(key) => onFilterChange(key, "")}
@@ -763,7 +746,6 @@ const ProjectCard = ({
       tabIndex={0}
       onKeyDown={(e) => e.key === "Enter" && onClick(project)}
     >
-      {/* Image Section */}
       <div className="relative aspect-[4/3] bg-gray-100 overflow-hidden">
         {project.featured && <FeaturedBadge />}
 
@@ -782,13 +764,10 @@ const ProjectCard = ({
           onClick={handleFavoriteClick}
         />
 
-        {/* Overlay on hover */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300" />
       </div>
 
-      {/* Content Section */}
       <div className="p-5">
-        {/* Developer */}
         {project.developerName && (
           <p className="text-xs text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
             <Building2 size={12} />
@@ -796,12 +775,10 @@ const ProjectCard = ({
           </p>
         )}
 
-        {/* Title */}
         <h3 className="text-lg font-semibold text-black mb-2 truncate group-hover:text-gray-700 transition-colors">
           {project.title}
         </h3>
 
-        {/* Location */}
         <div className="flex items-center text-gray-600 mb-4">
           <MapPin size={14} className="mr-1.5 flex-shrink-0 text-gray-400" />
           <span className="text-sm truncate">
@@ -809,7 +786,6 @@ const ProjectCard = ({
           </span>
         </div>
 
-        {/* Bedrooms */}
         {bedroomText && (
           <div className="text-sm text-gray-600 mb-4 pb-4 border-b border-gray-100">
             <span className="font-semibold text-black">{bedroomText}</span>{" "}
@@ -817,7 +793,6 @@ const ProjectCard = ({
           </div>
         )}
 
-        {/* Price & CTA */}
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">
@@ -864,7 +839,6 @@ const ProjectListCard = ({
       className="group bg-white rounded-2xl overflow-hidden shadow-md border border-gray-200 
         cursor-pointer hover:shadow-xl transition-all duration-300 flex flex-col md:flex-row"
     >
-      {/* Image Section */}
       <div className="relative w-full md:w-80 aspect-[4/3] md:aspect-auto bg-gray-100 flex-shrink-0 overflow-hidden">
         {project.featured && <FeaturedBadge />}
 
@@ -882,7 +856,6 @@ const ProjectListCard = ({
         />
       </div>
 
-      {/* Content Section */}
       <div className="flex-1 p-6 flex flex-col justify-between">
         <div>
           {project.developerName && (
@@ -1019,41 +992,51 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
-  // View state
+  const getInitialFiltersFromUrl = () => {
+    if (typeof window === "undefined") {
+      return {
+        search: "",
+        bedrooms: "",
+        priceRange: "",
+        location: "",
+        developer: "",
+        sort: "newest",
+        page: 1,
+      };
+    }
+
+    const params = new URLSearchParams(window.location.search);
+
+    return {
+      search: params.get("search") || "",
+      bedrooms: params.get("bedrooms") || "",
+      priceRange: params.get("price") || "",
+      location: params.get("location") || "",
+      developer: params.get("developer") || "",
+      sort: params.get("sort") || "newest",
+      page: parseInt(params.get("page") || "1", 10) || 1,
+    };
+  };
+
   const [view, setView] = useState("grid");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
-  // Filter state
-  const [filters, setFilters] = useState({
-    search: searchParams.get("search") || "",
-    bedrooms: searchParams.get("bedrooms") || "",
-    priceRange: searchParams.get("price") || "",
-    location: searchParams.get("location") || "",
-    developer: searchParams.get("developer") || "",
-    sort: searchParams.get("sort") || "newest",
-    page: parseInt(searchParams.get("page")) || 1,
-  });
+  const [filters, setFilters] = useState(() => getInitialFiltersFromUrl());
 
-  // Debounced search
   const [searchInput, setSearchInput] = useState(filters.search);
 
-  // Fetch projects with current filters
   const { projects, loading, error, totalCount, totalPages, refetch } = useProjects(filters);
 
-  // Favorites & Image loading
   const { savingId, toggleFavorite, isFavorite } = useFavorites();
   const { handleError: handleImageError, hasError: imageHasError } = useImageLoader();
 
-  // Paginated projects
   const paginatedProjects = useMemo(() => {
     const start = (filters.page - 1) * ITEMS_PER_PAGE;
     const end = start + ITEMS_PER_PAGE;
     return projects.slice(start, end);
   }, [projects, filters.page]);
 
-  // Debounced search handler
   useEffect(() => {
     const timer = setTimeout(() => {
       if (searchInput !== filters.search) {
@@ -1062,9 +1045,8 @@ export default function ProjectsPage() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [searchInput, filters.search]);
 
-  // Update URL with filters
   useEffect(() => {
     const params = new URLSearchParams();
 
@@ -1081,7 +1063,6 @@ export default function ProjectsPage() {
     window.history.replaceState({}, "", newUrl);
   }, [filters]);
 
-  // Handlers
   const handleFilterChange = useCallback((key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
   }, []);
@@ -1121,7 +1102,6 @@ export default function ProjectsPage() {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      {/* Hero Section */}
       <section className="bg-black text-white py-16 px-6 md:px-14">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-4xl md:text-5xl font-bold mb-4">
@@ -1134,7 +1114,6 @@ export default function ProjectsPage() {
         </div>
       </section>
 
-      {/* Main Content */}
       <section className="py-10 px-6 md:px-14">
         <div className="max-w-7xl mx-auto">
           <PageHeader totalCount={totalCount} loading={loading} />
@@ -1151,7 +1130,6 @@ export default function ProjectsPage() {
             onToggleMobileFilters={() => setShowMobileFilters(!showMobileFilters)}
           />
 
-          {/* Error State */}
           {error && (
             <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between">
               <p className="text-red-600">Error: {error}</p>
@@ -1164,15 +1142,12 @@ export default function ProjectsPage() {
             </div>
           )}
 
-          {/* Loading State */}
           {loading && <LoadingGrid />}
 
-          {/* Empty State */}
           {!loading && paginatedProjects.length === 0 && (
             <EmptyState onReset={handleReset} />
           )}
 
-          {/* Projects Grid */}
           {!loading && paginatedProjects.length > 0 && (
             <>
               {view === "grid" ? (
@@ -1209,7 +1184,6 @@ export default function ProjectsPage() {
                 </div>
               )}
 
-              {/* Pagination */}
               <Pagination
                 currentPage={filters.page}
                 totalPages={Math.ceil(totalCount / ITEMS_PER_PAGE)}

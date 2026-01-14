@@ -1,89 +1,106 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   Loader2,
   CheckCircle,
   XCircle,
-  AlertCircle,
   Trash2,
   Upload,
   Copy,
   RotateCcw,
   Save,
-  ChevronDown, // Added for dropdown/overview
   Eye,
   Globe,
-  RefreshCw, // Added for refresh button
 } from "lucide-react";
-// Replaced react-toastify with react-hot-toast
-import { toast, Toaster } from "react-hot-toast"; 
+
+import { toast, Toaster } from "react-hot-toast";
 import {
   getAdminToken,
   isAdminTokenValid,
-  getCurrentSessionType,
-  logoutAll,
 } from "../../../../utils/auth";
-import AdminNavbar from "../../dashboard/header/DashboardNavbar"; // Path corrected assuming it's in a common location
+import AdminNavbar from "../../dashboard/header/DashboardNavbar";
+import SimpleTextEditor from "../../../components/common/SimpleTextEditor";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// ==================== TOKEN VERIFICATION (copied from AgentsPage) ====================
-const verifyToken = async (token) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, { // Corrected endpoint
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-    });
+// ==================== TOAST HELPERS ====================
+const showSuccess = (message) => toast.success(message);
+const showError = (message) => toast.error(message);
+const showWarning = (message) => toast(message, { icon: "⚠️" });
+const showLoadingToast = (message) => toast.loading(message);
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("Token verification failed:", error);
-    throw error;
-  }
+// ==================== AUTH HELPERS ====================
+const getCurrentSessionType = () => {
+  if (typeof window === "undefined") return null;
+  const adminToken = localStorage.getItem("adminToken");
+  const userToken = localStorage.getItem("userToken");
+  if (adminToken) return "admin";
+  if (userToken) return "user";
+  return null;
 };
 
-// ==================== INITIAL FORM DATA (DATABASE SCHEMA COMPATIBLE) ====================
+const logoutAll = () => {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("adminToken");
+  localStorage.removeItem("userToken");
+  localStorage.removeItem("adminUser");
+  localStorage.removeItem("user");
+};
+
+const verifyToken = async (token) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+  return await response.json();
+};
+
+// ==================== INITIAL FORM DATA ====================
 const INITIAL_FORM_DATA = {
-  // Basic Info - REQUIRED
+  // Basic Info
   property_name: "",
   property_slug: "",
   listing_type: "sale",
   property_type: "Apartment",
   property_purpose: "Sale",
-  
-  // Pricing - REQUIRED
+
+  // Pricing
   price: "",
   price_end: "",
   askprice: "0",
-  currency_id: 1, // Assuming default currency ID
-  
-  // Property Details - REQUIRED
+  currency_id: 1,
+
+  // Property Details
   bedroom: "",
   bathrooms: "",
   area: "",
   area_end: "",
   area_size: "Sq.Ft.",
-  
-  // Location - REQUIRED
+
+  // Location - TEXT FIELDS (required by backend)
   city: "",
   community: "",
   sub_community: "",
   location: "",
   address: "",
+  BuildingName: "",
+  StreetName: "",
   
-  // Description - REQUIRED
+  // Location IDs (for database relations)
+  city_id: 1,
+  community_id: 1,
+  sub_community_id: 1,
+
+  // Description
   description: "",
-  
+
   // Features
   amenities: "",
   property_features: "",
@@ -91,16 +108,16 @@ const INITIAL_FORM_DATA = {
   property_status: "Ready",
   furnishing: "Fully Furnished",
   flooring: "Marble",
-  
-  // IDs - Assuming default values for new properties
+
+  // IDs
   developer_id: 1,
   user_id: 1,
   agent_id: "",
-  
+
   // Status
-  status: 1, // 1 for active, 0 for inactive, 2 for draft
-  featured_property: "0", // "1" for featured, "0" for not featured
-  
+  status: 1,
+  featured_property: "0",
+
   // Additional
   video_url: "",
   map_latitude: "",
@@ -112,106 +129,84 @@ const INITIAL_FORM_DATA = {
   dld_permit: "",
 };
 
-// ==================== REQUIRED FIELDS LIST ====================
+// ==================== REQUIRED FIELDS ====================
 const REQUIRED_FIELDS = [
   { field: "property_name", label: "Property Name" },
-  { field: "property_slug", label: "Property Slug" },
-  { field: "listing_type", label: "Listing Type" },
-  { field: "property_type", label: "Property Type" },
-  { field: "property_purpose", label: "Property Purpose" },
   { field: "price", label: "Price" },
   { field: "bedroom", label: "Bedrooms" },
-  { field: "bathrooms", label: "Bathrooms" },
-  { field: "area", label: "Area" },
   { field: "city", label: "City" },
   { field: "community", label: "Community" },
-  { field: "location", label: "Location" },
-  { field: "address", label: "Address" },
   { field: "description", label: "Description" },
 ];
 
-// ==================== STYLES (Adjusted for consistency) ====================
-const labelCls = "text-sm text-gray-700"; // Changed text-[12px] to text-sm
-const labelRequiredCls = "text-sm text-gray-700 after:content-['*'] after:text-red-500 after:ml-0.5"; // Changed text-[12px] to text-sm
-const fieldCls = "h-9 w-full border border-gray-300 bg-white px-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded"; // Changed text-[12px] to text-sm, added rounded
-const fieldErrorCls = "h-9 w-full border border-red-400 bg-red-50 px-2 text-sm outline-none focus:ring-1 focus:ring-red-500 rounded"; // Changed text-[12px] to text-sm, added rounded
-const selectCls = "h-9 w-full border border-gray-300 bg-white px-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded"; // Changed text-[12px] to text-sm, added rounded
-const selectErrorCls = "h-9 w-full border border-red-400 bg-red-50 px-2 text-sm outline-none focus:ring-1 focus:ring-red-500 rounded"; // Changed text-[12px] to text-sm, added rounded
-const boxCls = "border border-gray-300 bg-white rounded"; // Added rounded
-const boxHeaderCls = "px-3 py-2 border-b border-gray-300 text-sm font-semibold text-gray-800"; // Changed text-[13px] to text-sm
+// ==================== STYLES ====================
+const labelCls = "text-sm text-gray-700";
+const labelRequiredCls = "text-sm text-gray-700 after:content-['*'] after:text-red-500 after:ml-0.5";
+const fieldCls = "h-9 w-full border border-gray-300 bg-white px-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded";
+const fieldErrorCls = "h-9 w-full border border-red-400 bg-red-50 px-2 text-sm outline-none focus:ring-1 focus:ring-red-500 rounded";
+const selectCls = "h-9 w-full border border-gray-300 bg-white px-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded";
+const selectErrorCls = "h-9 w-full border border-red-400 bg-red-50 px-2 text-sm outline-none focus:ring-1 focus:ring-red-500 rounded";
+const boxCls = "border border-gray-300 bg-white rounded";
+const boxHeaderCls = "px-3 py-2 border-b border-gray-300 text-sm font-semibold text-gray-800";
 const boxBodyCls = "p-3";
+
+// ==================== HELPER FUNCTIONS ====================
+const countWordsInHTML = (html) => {
+  if (!html) return 0;
+  const text = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return text.split(/\s+/).filter(Boolean).length;
+};
+
+const generateSlug = (title) => {
+  if (!title) return "";
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    + "-" + Math.random().toString(36).substring(2, 8);
+};
 
 // ==================== SEO CHECKLIST COMPONENT ====================
 function SeoChecklist({ formData }) {
+  const descriptionWordCount = countWordsInHTML(formData.description);
+
   const checks = [
-    {
-      label: "Property name is descriptive (min 10 chars)",
-      passed: formData.property_name && formData.property_name.length >= 10
-    },
-    {
-      label: "Description has at least 50 words",
-      passed: formData.description && formData.description.split(/\s+/).filter(Boolean).length >= 50
-    },
-    {
-      label: "Price is specified",
-      passed: !!formData.price
-    },
-    {
-      label: "Property type is selected",
-      passed: !!formData.property_type
-    },
-    {
-      label: "Location is specified",
-      passed: !!(formData.location && formData.city)
-    },
-    {
-      label: "Area is specified",
-      passed: !!formData.area
-    },
-    {
-      label: "Bedrooms specified",
-      passed: !!formData.bedroom
-    },
-    {
-      label: "Amenities added",
-      passed: formData.amenities && formData.amenities.length > 10
-    }
+    { label: "Property name (min 10 chars)", passed: formData.property_name?.length >= 10 },
+    { label: "Description (min 50 words)", passed: descriptionWordCount >= 50 },
+    { label: "Price specified", passed: !!formData.price },
+    { label: "Property type selected", passed: !!formData.property_type },
+    { label: "City specified", passed: !!formData.city },
+    { label: "Community specified", passed: !!formData.community },
+    { label: "Bedrooms specified", passed: !!formData.bedroom },
+    { label: "Area specified", passed: !!formData.area },
   ];
 
-  const passedCount = checks.filter(c => c.passed).length;
+  const passedCount = checks.filter((c) => c.passed).length;
   const percentage = Math.round((passedCount / checks.length) * 100);
 
   return (
     <div className="mt-3 space-y-2">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-medium text-gray-700">SEO Score</span> {/* Changed text-[12px] to text-sm */}
-        <span className={`text-sm font-bold ${ // Changed text-[12px] to text-sm
-          percentage >= 80 ? 'text-green-600' :
-          percentage >= 60 ? 'text-amber-600' : 'text-red-600'
-        }`}>
+        <span className="text-sm font-medium text-gray-700">SEO Score</span>
+        <span className={`text-sm font-bold ${percentage >= 80 ? "text-green-600" : percentage >= 60 ? "text-amber-600" : "text-red-600"}`}>
           {percentage}%
         </span>
       </div>
       <div className="w-full bg-gray-200 h-2 rounded">
-        <div 
-          className={`h-2 rounded transition-all ${
-            percentage >= 80 ? 'bg-green-500' :
-            percentage >= 60 ? 'bg-amber-500' : 'bg-red-500'
-          }`}
+        <div
+          className={`h-2 rounded transition-all ${percentage >= 80 ? "bg-green-500" : percentage >= 60 ? "bg-amber-500" : "bg-red-500"}`}
           style={{ width: `${percentage}%` }}
         />
       </div>
       <div className="mt-3">
         {checks.map((check, index) => (
-          <div key={index} className="flex items-start gap-2 text-xs text-gray-700 py-1"> {/* Changed text-[11px] to text-xs */}
+          <div key={index} className="flex items-start gap-2 text-xs text-gray-700 py-1">
             {check.passed ? (
               <CheckCircle className="w-3.5 h-3.5 text-green-600 mt-0.5 flex-shrink-0" />
             ) : (
               <XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 flex-shrink-0" />
             )}
-            <div className={check.passed ? "text-green-700" : "text-red-700"}>
-              {check.label}
-            </div>
+            <div className={check.passed ? "text-green-700" : "text-red-700"}>{check.label}</div>
           </div>
         ))}
       </div>
@@ -221,34 +216,31 @@ function SeoChecklist({ formData }) {
 
 // ==================== VALIDATION INDICATOR ====================
 function ValidationIndicator({ formData }) {
-  const missingFields = REQUIRED_FIELDS.filter(({ field }) => !formData[field]);
+  const missingFields = REQUIRED_FIELDS.filter(({ field }) => {
+    const value = formData[field];
+    if (field === "description") return countWordsInHTML(value) < 10;
+    return !value;
+  });
+
   const completedCount = REQUIRED_FIELDS.length - missingFields.length;
   const percentage = Math.round((completedCount / REQUIRED_FIELDS.length) * 100);
 
   return (
-    <div className="bg-white border border-gray-300 rounded p-3 mb-3"> {/* Added rounded */}
+    <div className="bg-white border border-gray-300 rounded p-3 mb-3">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-medium text-gray-700">Form Completion</span> {/* Changed text-[12px] to text-sm */}
-        <span className={`text-sm font-bold ${ // Changed text-[12px] to text-sm
-          percentage === 100 ? 'text-green-600' :
-          percentage >= 70 ? 'text-amber-600' : 'text-red-600'
-        }`}>
+        <span className="text-sm font-medium text-gray-700">Form Completion</span>
+        <span className={`text-sm font-bold ${percentage === 100 ? "text-green-600" : percentage >= 70 ? "text-amber-600" : "text-red-600"}`}>
           {completedCount}/{REQUIRED_FIELDS.length} fields
         </span>
       </div>
       <div className="w-full bg-gray-200 h-2 rounded mb-2">
-        <div 
-          className={`h-2 rounded transition-all ${
-            percentage === 100 ? 'bg-green-500' :
-            percentage >= 70 ? 'bg-amber-500' : 'bg-red-500'
-          }`}
+        <div
+          className={`h-2 rounded transition-all ${percentage === 100 ? "bg-green-500" : percentage >= 70 ? "bg-amber-500" : "bg-red-500"}`}
           style={{ width: `${percentage}%` }}
         />
       </div>
       {missingFields.length > 0 && (
-        <div className="text-xs text-red-600"> {/* Changed text-[11px] to text-xs */}
-          Missing: {missingFields.map(f => f.label).join(", ")}
-        </div>
+        <div className="text-xs text-red-600">Missing: {missingFields.map((f) => f.label).join(", ")}</div>
       )}
     </div>
   );
@@ -256,14 +248,13 @@ function ValidationIndicator({ formData }) {
 
 // ==================== MAIN COMPONENT ====================
 export default function AddPropertyPage() {
-  // Navbar/Auth
+  // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [admin, setAdmin] = useState(null);
   const [logoutLoading, setLogoutLoading] = useState(false);
 
-  // Form state
-  const [activeTab, setActiveTab] = useState("details"); // Note: Tabs are not fully implemented visually in this refactor, but kept for future use if needed.
+  // Form State
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
   const [saving, setSaving] = useState(false);
   const [seoScore, setSeoScore] = useState(0);
@@ -274,74 +265,7 @@ export default function AddPropertyPage() {
   const [selectedMainImage, setSelectedMainImage] = useState(null);
   const [selectedImages, setSelectedImages] = useState([]);
 
-  // ==================== AUTHENTICATION (copied from AgentsPage) ====================
-  const checkAuth = useCallback(async () => {
-    try {
-      const sessionType = getCurrentSessionType();
-
-      if (sessionType !== "admin") {
-        if (sessionType === "user") {
-          toast.error("Please login as admin to access this dashboard");
-        } else {
-          toast.error("Please login to access dashboard");
-        }
-        handleAuthFailure();
-        return;
-      }
-
-      const token = getAdminToken();
-
-      if (!token) {
-        toast.error("Please login to access dashboard");
-        handleAuthFailure();
-        return;
-      }
-
-      if (!isAdminTokenValid()) {
-        toast.error("Session expired. Please login again.");
-        handleAuthFailure();
-        return;
-      }
-
-      try {
-        await verifyToken(token);
-      } catch (verifyError) {
-        console.error("Token verification error:", verifyError);
-      }
-
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-
-        if (payload.userType !== "admin") {
-          toast.error("Invalid session type. Please login as admin.");
-          handleAuthFailure();
-          return;
-        }
-
-        const adminData = {
-          id: payload.id,
-          name: payload.name,
-          email: payload.email,
-          role: payload.role || "admin",
-          userType: payload.userType,
-          avatar: null,
-        };
-
-        setAdmin(adminData);
-        setIsAuthenticated(true);
-        setAuthLoading(false);
-      } catch (e) {
-        console.error("Token decode error:", e);
-        toast.error("Invalid session. Please login again.");
-        handleAuthFailure();
-      }
-    } catch (error) {
-      console.error("Auth check error:", error);
-      toast.error("Authentication failed. Please login again.");
-      handleAuthFailure();
-    }
-  }, []);
-
+  // ==================== AUTHENTICATION ====================
   const handleAuthFailure = useCallback(() => {
     logoutAll();
     setAdmin(null);
@@ -350,98 +274,137 @@ export default function AddPropertyPage() {
     window.location.href = "/admin/login";
   }, []);
 
+  const checkAuth = useCallback(async () => {
+    try {
+      const sessionType = getCurrentSessionType();
+
+      if (sessionType !== "admin") {
+        handleAuthFailure();
+        return;
+      }
+
+      const token = getAdminToken();
+      if (!token || !isAdminTokenValid()) {
+        handleAuthFailure();
+        return;
+      }
+
+      try {
+        await verifyToken(token);
+      } catch (e) {
+        console.error("Token verification error:", e);
+      }
+
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        if (payload.userType !== "admin") {
+          handleAuthFailure();
+          return;
+        }
+
+        setAdmin({
+          id: payload.id,
+          name: payload.name,
+          email: payload.email,
+          role: payload.role || "admin",
+          userType: payload.userType,
+        });
+        setIsAuthenticated(true);
+        setAuthLoading(false);
+      } catch (e) {
+        console.error("Token decode error:", e);
+        handleAuthFailure();
+      }
+    } catch (error) {
+      console.error("Auth check error:", error);
+      handleAuthFailure();
+    }
+  }, [handleAuthFailure]);
+
   const handleLogout = useCallback(async () => {
     setLogoutLoading(true);
-    const logoutToast = showLoadingToast("Logging out...");
-    
     try {
       const token = getAdminToken();
-      
-      await fetch(
-        `${API_BASE_URL}/api/v1/users/logout`, // Corrected endpoint for logout
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      ).catch(() => {});
-    } catch (err) {
-      console.error("Logout error:", err);
-      toast.dismiss(logoutToast); // Dismiss toast on error
-      showError("Logout failed. Please try again.");
+      await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
     } finally {
       logoutAll();
       setAdmin(null);
       setIsAuthenticated(false);
-      toast.dismiss(logoutToast); // Dismiss toast on success
-      showSuccess("Logged out successfully"); // Show success toast
+      showSuccess("Logged out successfully");
       window.location.href = "/admin/login";
       setLogoutLoading(false);
     }
   }, []);
 
   // Calculate SEO score
-  useEffect(() => {
-    calculateSeoScore();
-  }, [formData]);
-
-  const calculateSeoScore = () => {
+  const calculateSeoScore = useCallback(() => {
     let score = 0;
-    const totalChecks = 8;
+    const descriptionWordCount = countWordsInHTML(formData.description);
 
-    if (formData.property_name && formData.property_name.length >= 10) score++;
-    if (formData.description && formData.description.split(/\s+/).filter(Boolean).length >= 50) score++;
+    if (formData.property_name?.length >= 10) score++;
+    if (descriptionWordCount >= 50) score++;
     if (formData.price) score++;
     if (formData.property_type) score++;
-    if (formData.location && formData.city) score++;
-    if (formData.area) score++;
+    if (formData.city) score++;
+    if (formData.community) score++;
     if (formData.bedroom) score++;
-    if (formData.amenities && formData.amenities.length > 10) score++;
+    if (formData.area) score++;
 
-    setSeoScore(Math.round((score / totalChecks) * 100));
-  };
+    setSeoScore(Math.round((score / 8) * 100));
+  }, [formData]);
+
+  useEffect(() => {
+    calculateSeoScore();
+  }, [calculateSeoScore]);
 
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
 
   // ==================== FORM HANDLERS ====================
-  const handleChange = (field, value) => {
-    const updated = { ...formData, [field]: value };
-    
-    // Auto-generate slug from property name
-    if (field === "property_name") {
-      const slug = (value || "")
-        .toLowerCase()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "-")
-        .replace(/--+/g, "-");
-      updated.property_slug = slug;
-    }
-    
-    setFormData(updated);
-    
+  const handleChange = useCallback((field, value) => {
+    setFormData((prev) => {
+      const updated = { ...prev, [field]: value };
+
+      // Auto-generate slug from property name
+      if (field === "property_name") {
+        updated.property_slug = generateSlug(value);
+      }
+      
+      // Auto-generate location from city and community
+      if (field === "city" || field === "community") {
+        const city = field === "city" ? value : prev.city;
+        const community = field === "community" ? value : prev.community;
+        updated.location = [community, city].filter(Boolean).join(", ");
+      }
+
+      return updated;
+    });
+
     // Clear error when field is filled
-    if (value && errors[field]) {
-      setErrors(prev => {
+    if (value) {
+      setErrors((prev) => {
         const newErrors = { ...prev };
         delete newErrors[field];
         return newErrors;
       });
     }
-  };
+  }, []);
 
-  const handleBlur = (field) => {
-    setTouched(prev => ({ ...prev, [field]: true }));
-    
-    // Validate on blur
-    if (REQUIRED_FIELDS.find(f => f.field === field) && !formData[field]) {
-      setErrors(prev => ({ ...prev, [field]: "This field is required" }));
-    }
-  };
+  const handleBlur = useCallback((field) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+  }, []);
 
-  const handleImageUpload = (e, type) => {
+  const handleDescriptionChange = useCallback((htmlContent) => {
+    handleChange("description", htmlContent);
+  }, [handleChange]);
+
+  const handleImageUpload = useCallback((e, type) => {
     const files = Array.from(e.target.files || []);
-    const validFiles = files.filter(f => {
+    const validFiles = files.filter((f) => {
       if (!f.type.startsWith("image/")) {
         showError(`File ${f.name} is not an image.`);
         return false;
@@ -458,109 +421,155 @@ export default function AddPropertyPage() {
       showSuccess("Featured image selected!");
     }
     if (type === "gallery") {
-      const total = selectedImages.length + validFiles.length;
-      if (total > 10) {
-        showError("Maximum 10 images allowed in gallery.");
-        return;
-      }
-      setSelectedImages((prev) => [...prev, ...validFiles]);
-      showSuccess(`${validFiles.length} images added to gallery!`);
+      setSelectedImages((prev) => {
+        const total = prev.length + validFiles.length;
+        if (total > 10) {
+          showError("Maximum 10 images allowed.");
+          return prev;
+        }
+        showSuccess(`${validFiles.length} images added!`);
+        return [...prev, ...validFiles];
+      });
     }
-    e.target.value = ""; // Clear file input
-  };
+    e.target.value = "";
+  }, []);
 
-  const removeNewImage = (index, type) => {
+  const removeNewImage = useCallback((index, type) => {
     if (type === "main") {
       setSelectedMainImage(null);
       showSuccess("Featured image removed");
     } else {
       setSelectedImages((prev) => prev.filter((_, i) => i !== index));
-      showSuccess("Gallery image removed");
+      showSuccess("Image removed");
     }
-  };
+  }, []);
 
   // ==================== VALIDATION ====================
-  const validateForm = () => {
+  const validateForm = useCallback(() => {
     const newErrors = {};
-    
-    REQUIRED_FIELDS.forEach(({ field, label }) => {
-      if (!formData[field]) {
-        newErrors[field] = `${label} is required`;
-      }
-    });
+    const descriptionWordCount = countWordsInHTML(formData.description);
 
-    // Additional validations
+    if (!formData.property_name) newErrors.property_name = "Property name is required";
+    if (!formData.price) newErrors.price = "Price is required";
+    if (!formData.bedroom) newErrors.bedroom = "Bedrooms is required";
+    if (!formData.city) newErrors.city = "City is required";
+    if (!formData.community) newErrors.community = "Community is required";
+    if (descriptionWordCount < 10) newErrors.description = "Description is required (at least 10 words)";
+
     if (formData.price && isNaN(Number(formData.price))) {
       newErrors.price = "Price must be a valid number";
     }
 
-    if (formData.area && isNaN(Number(formData.area))) {
-      newErrors.area = "Area must be a valid number";
-    }
-    
-    const descriptionWordCount = formData.description?.split(/\s+/).filter(Boolean).length || 0;
-    if (descriptionWordCount < 50) { // Changed to 50 for better SEO practice
-      newErrors.description = `Description should have at least 50 words (${descriptionWordCount}/50)`;
-    }
-
     setErrors(newErrors);
-    
+
     if (Object.keys(newErrors).length > 0) {
       const missingLabels = Object.keys(newErrors).map(key => {
-        const found = REQUIRED_FIELDS.find(f => f.field === key);
-        return found ? found.label : key;
+        const field = REQUIRED_FIELDS.find(f => f.field === key);
+        return field ? field.label : key;
       });
-      showError(`Please fill required fields: ${missingLabels.slice(0, 3).join(", ")}${missingLabels.length > 3 ? '...' : ''}`);
+      showError(`Please fill: ${missingLabels.join(", ")}`);
       return false;
     }
-    
-    return true;
-  };
 
-  const generateSlug = () => {
+    return true;
+  }, [formData]);
+
+  const handleGenerateSlug = useCallback(() => {
     if (!formData.property_name) {
       showError("Please enter property name first");
       return;
     }
-    
-    const slug = formData.property_name
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/--+/g, "-");
-      // Removed Date.now() from slug generation for cleaner slugs, can be added if uniqueness is an issue for initial save.
-    
-    setFormData(prev => ({ ...prev, property_slug: slug }));
-    showSuccess("Property slug generated successfully!");
-  };
+    const slug = generateSlug(formData.property_name);
+    setFormData((prev) => ({ ...prev, property_slug: slug }));
+    showSuccess("Slug generated!");
+  }, [formData.property_name]);
 
   // ==================== FORM SUBMISSION ====================
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     if (!validateForm()) return;
 
     setSaving(true);
     const saveToastId = showLoadingToast("Saving property...");
 
     try {
-      // Prepare FormData for multipart request
       const fd = new FormData();
-      
-      // Add all form fields
-      const databaseFields = [
-        'property_name', 'property_slug', 'listing_type', 'property_type', 'property_purpose',
-        'price', 'price_end', 'askprice', 'currency_id', 'bedroom', 'bathrooms',
-        'area', 'area_end', 'area_size', 'city', 'community', 'sub_community',
-        'location', 'address', 'description', 'amenities', 'property_features',
-        'parking', 'property_status', 'furnishing', 'flooring', 'developer_id',
-        'user_id', 'agent_id', 'status', 'featured_property', 'video_url',
-        'map_latitude', 'map_longitude', 'rera_number', 'completion_date',
-        'unit_number', 'floor_number', 'dld_permit'
-      ];
-      
-      databaseFields.forEach(field => {
-        const value = formData[field];
+
+      // Build location string from city and community
+      const locationString = [formData.community, formData.city].filter(Boolean).join(", ");
+
+      // All fields to send - matching backend simpleCreateProperty requirements
+      const propertyData = {
+        // Required by backend
+        property_name: formData.property_name,
+        price: formData.price,
+        bedroom: formData.bedroom,
+        city: formData.city,           // Required TEXT field
+        community: formData.community, // Required TEXT field
+        
+        // Optional but recommended
+        property_slug: formData.property_slug || generateSlug(formData.property_name),
+        listing_type: formData.listing_type || "sale",
+        property_type: formData.property_type || "Apartment",
+        property_purpose: formData.property_purpose || "Sale",
+        
+        // Pricing
+        price_end: formData.price_end || "",
+        askprice: formData.askprice || "0",
+        currency_id: formData.currency_id || 1,
+        
+        // Property Details
+        bathrooms: formData.bathrooms || "",
+        area: formData.area || "",
+        area_end: formData.area_end || "",
+        area_size: formData.area_size || "Sq.Ft.",
+        
+        // Location details
+        sub_community: formData.sub_community || "",
+        location: locationString,
+        address: formData.address || locationString,
+        BuildingName: formData.BuildingName || "",
+        StreetName: formData.StreetName || "",
+        
+        // Location IDs
+        city_id: formData.city_id || 1,
+        community_id: formData.community_id || 1,
+        sub_community_id: formData.sub_community_id || 1,
+        
+        // Description
+        description: formData.description || "",
+        
+        // Features
+        amenities: formData.amenities || "",
+        property_features: formData.property_features || "",
+        parking: formData.parking || "",
+        property_status: formData.property_status || "Ready",
+        furnishing: formData.furnishing || "Fully Furnished",
+        flooring: formData.flooring || "Marble",
+        
+        // IDs
+        developer_id: formData.developer_id || 1,
+        user_id: formData.user_id || 1,
+        agent_id: formData.agent_id || "",
+        
+        // Status
+        status: formData.status || 1,
+        featured_property: formData.featured_property || "0",
+        
+        // Additional
+        video_url: formData.video_url || "",
+        map_latitude: formData.map_latitude || "",
+        map_longitude: formData.map_longitude || "",
+        rera_number: formData.rera_number || "",
+        completion_date: formData.completion_date || "",
+        unit_number: formData.unit_number || "",
+        floor_number: formData.floor_number || "",
+        dld_permit: formData.dld_permit || "",
+      };
+
+      // Append all fields to FormData
+      Object.entries(propertyData).forEach(([key, value]) => {
         if (value !== null && value !== undefined && value !== "") {
-          fd.append(field, typeof value === 'boolean' ? String(value) : value);
+          fd.append(key, value);
         }
       });
 
@@ -568,7 +577,7 @@ export default function AddPropertyPage() {
       if (selectedMainImage) {
         fd.append("featured_image", selectedMainImage);
       }
-      
+
       selectedImages.forEach((img) => {
         fd.append("gallery_images", img);
       });
@@ -580,26 +589,27 @@ export default function AddPropertyPage() {
         return;
       }
 
+      // Use the simple endpoint that matches your backend
       const response = await fetch(`${API_BASE_URL}/api/v1/properties`, {
         method: "POST",
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
-          // 'Content-Type': 'multipart/form-data' is typically set automatically by browser when FormData is used.
         },
         body: fd,
       });
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.message || "Create failed");
       }
 
       toast.dismiss(saveToastId);
+      
       if (result.success) {
         showSuccess("Property created successfully!");
         setTimeout(() => {
-          window.location.href = "/admin/properties"; // Redirect to property list
+          window.location.href = "/admin/properties";
         }, 1500);
       }
     } catch (e) {
@@ -609,159 +619,115 @@ export default function AddPropertyPage() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [formData, selectedMainImage, selectedImages, validateForm, handleAuthFailure]);
 
   // ==================== UTILITY FUNCTIONS ====================
-  const saveAsDraft = () => {
-    setFormData(prev => ({ ...prev, status: 0 })); // Assuming 0 is draft/inactive status
+  const saveAsDraft = useCallback(() => {
+    setFormData((prev) => ({ ...prev, status: 0 }));
     showWarning("Set as draft. Click Save to submit.");
-  };
+  }, []);
 
-  const copyFormData = () => {
+  const copyFormData = useCallback(() => {
     navigator.clipboard.writeText(JSON.stringify(formData, null, 2));
-    showSuccess("Form data copied to clipboard!");
-  };
+    showSuccess("Form data copied!");
+  }, [formData]);
 
-  const resetForm = () => {
-    if (window.confirm("Are you sure you want to reset all form data?")) {
+  const resetForm = useCallback(() => {
+    if (window.confirm("Reset all form data?")) {
       setFormData(INITIAL_FORM_DATA);
       setSelectedMainImage(null);
       setSelectedImages([]);
       setErrors({});
       setTouched({});
-      showSuccess("Form reset successfully");
+      showSuccess("Form reset");
     }
-  };
+  }, []);
 
-  const previewProperty = () => {
-    if (!formData.property_slug) {
-      showError("Please generate a slug first");
-      return;
-    }
-    
-    const url = `${window.location.origin}/properties/${formData.property_slug}`;
-    window.open(url, '_blank');
-  };
-
-  const fillSampleData = () => {
+  const fillSampleData = useCallback(() => {
     const sampleData = {
+      ...INITIAL_FORM_DATA,
       property_name: "Luxury Villa Palm Jumeirah",
-      property_slug: "luxury-villa-palm-jumeirah-" + Date.now(), // Unique slug
+      property_slug: generateSlug("Luxury Villa Palm Jumeirah"),
       listing_type: "sale",
       property_type: "Villa",
       property_purpose: "Sale",
       price: "15000000",
       price_end: "16000000",
-      askprice: "0",
-      currency_id: 1,
       bedroom: "5",
       bathrooms: "6",
       area: "8500",
       area_end: "9000",
-      area_size: "Sq.Ft.",
+      
+      // Location TEXT fields (required by backend)
       city: "Dubai",
       community: "Palm Jumeirah",
       sub_community: "Frond A",
       location: "Palm Jumeirah, Dubai",
       address: "Palm Jumeirah, Frond A, Dubai, UAE",
-      description: "Stunning 5 bedroom luxury villa with private beach access, swimming pool, and panoramic sea views. Fully furnished with premium finishes. This exceptional property offers the finest waterfront living experience in Dubai's most prestigious address. Features include a private elevator, home automation system, landscaped gardens, and direct beach access. This is a very detailed description to ensure it meets SEO word count recommendations.", // Ensure enough words
+      BuildingName: "Palm Residence",
+      StreetName: "Frond A",
+      
+      // Location IDs
+      city_id: 1,
+      community_id: 1,
+      sub_community_id: 1,
+      
+      description: `<p>Stunning 5 bedroom luxury villa with private beach access, swimming pool, and panoramic sea views.</p>
+<p>Fully furnished with premium finishes. This exceptional property offers the finest waterfront living experience in Dubai's most prestigious address.</p>
+<p>Features include a private elevator, home automation system, landscaped gardens, and direct beach access. The property boasts marble flooring throughout, floor-to-ceiling windows, and a state-of-the-art kitchen.</p>
+<p>The master bedroom features a walk-in closet and an ensuite bathroom with jacuzzi. Additional amenities include private gym, sauna, and staff quarters.</p>`,
       amenities: "Private Beach,Swimming Pool,Gym,Sauna,Jacuzzi,Garden,Parking,Smart Home",
       property_features: "Sea View,Private Pool,Private Garden,Maids Room,Guest Room",
       parking: "4",
       property_status: "Ready",
       furnishing: "Fully Furnished",
       flooring: "Marble",
-      developer_id: 1,
-      user_id: 1,
       status: 1,
       featured_property: "1",
-      video_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", // Sample YouTube video
+      video_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       map_latitude: "25.1128",
       map_longitude: "55.1392",
       rera_number: "RERA123456",
       completion_date: "2024-12-31",
       unit_number: "Villa 45",
-      floor_number: "G+2"
+      floor_number: "G+2",
     };
-    
+
     setFormData(sampleData);
     setErrors({});
     showSuccess("Sample data filled!");
-  };
+  }, []);
 
-  // Helper function to get field classes
-  const getFieldClass = (field, baseClass = fieldCls, errorClass = fieldErrorCls) => {
-    return errors[field] && touched[field] ? errorClass : baseClass;
-  };
+  const getFieldClass = useCallback(
+    (field, baseClass = fieldCls, errorClass = fieldErrorCls) => {
+      return errors[field] && touched[field] ? errorClass : baseClass;
+    },
+    [errors, touched]
+  );
 
   // ==================== LOADING STATE ====================
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Toaster /> {/* hot-toast Toaster */}
+        <Toaster />
         <div className="text-center">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
-          </div>
-          <p className="mt-4 text-gray-600 font-medium">
-            Verifying authentication...
-          </p>
+          <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-gray-600 font-medium">Verifying authentication...</p>
         </div>
       </div>
     );
   }
 
   if (!isAuthenticated || !admin) {
-    return null; // Should redirect via handleAuthFailure
+    return null;
   }
+
+  const descriptionWordCount = countWordsInHTML(formData.description);
 
   return (
     <>
-      {/* hot-toast Toaster Configuration */}
-      <Toaster 
-        position="top-right"
-        reverseOrder={false}
-        gutter={8}
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: '#363636',
-            color: '#fff',
-          },
-          success: {
-            duration: 3000,
-            iconTheme: {
-              primary: '#fff',
-              secondary: '#10B981',
-            },
-            style: {
-              background: '#10B981',
-              fontWeight: '500',
-            },
-          },
-          error: {
-            duration: 4000,
-            iconTheme: {
-              primary: '#fff',
-              secondary: '#EF4444',
-            },
-            style: {
-              background: '#EF4444',
-              fontWeight: '500',
-            },
-          },
-          loading: {
-            duration: Infinity,
-            style: {
-              background: '#3B82F6',
-              color: '#fff',
-              fontWeight: '500',
-            },
-          },
-        }}
-      />
-      
-      {/* AdminNavbar - consistent with AgentsPage */}
+      <Toaster position="top-right" />
+
       <AdminNavbar
         admin={admin}
         isAuthenticated={isAuthenticated}
@@ -769,20 +735,17 @@ export default function AddPropertyPage() {
         logoutLoading={logoutLoading}
       />
 
-      <div className="min-h-screen bg-gray-100 pt-4"> {/* Consistent background and padding */}
-        <div className="max-w-[1250px] mx-auto px-3"> {/* Adjusted padding */}
-          {/* Top Control Bar - consistent with AgentsPage */}
+      <div className="min-h-screen bg-gray-100 pt-4">
+        <div className="max-w-[1250px] mx-auto px-3">
+          {/* Top Control Bar */}
           <div className="bg-white border border-gray-300 rounded-t p-3">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold text-gray-800">Add New Property</h1> {/* Larger heading */}
-                
-                {/* Back/Forward Nav Buttons */}
+                <h1 className="text-2xl font-bold text-gray-800">Add New Property</h1>
                 <button
                   type="button"
                   onClick={() => window.history.back()}
                   className="w-8 h-8 border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-50 rounded"
-                  title="Back"
                 >
                   <ArrowLeft className="w-4 h-4 text-gray-700" />
                 </button>
@@ -790,56 +753,36 @@ export default function AddPropertyPage() {
                   type="button"
                   onClick={() => window.history.forward()}
                   className="w-8 h-8 border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-50 rounded"
-                  title="Forward"
                 >
                   <ArrowRight className="w-4 h-4 text-gray-700" />
                 </button>
               </div>
 
               <div className="flex items-center gap-3">
-                {/* SEO Score Display */}
                 <div className="flex items-center bg-gray-100 border border-gray-200 px-3 py-1 rounded">
                   <Globe className="w-4 h-4 text-blue-600 mr-2" />
-                  <span className="text-sm font-medium text-gray-700">SEO Score:</span>
-                  <span className={`ml-1 text-sm font-bold ${
-                    seoScore >= 80 ? 'text-green-600' :
-                    seoScore >= 60 ? 'text-amber-600' : 'text-red-600'
-                  }`}>
+                  <span className="text-sm font-medium text-gray-700">SEO:</span>
+                  <span className={`ml-1 text-sm font-bold ${seoScore >= 80 ? "text-green-600" : seoScore >= 60 ? "text-amber-600" : "text-red-600"}`}>
                     {seoScore}%
                   </span>
                 </div>
-                
-                {/* Fill Sample Data */}
+
                 <button
                   type="button"
                   onClick={fillSampleData}
-                  className="inline-flex items-center px-4 py-2 text-sm font-medium border border-blue-300 bg-blue-50 text-blue-700 rounded hover:bg-blue-100" // AgentsPage button style
+                  className="px-4 py-2 text-sm font-medium border border-blue-300 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
                 >
-                  Fill Sample Data
+                  Fill Sample
                 </button>
-                
-                {/* Preview Button */}
-                {formData.property_slug && (
-                  <button
-                    type="button"
-                    onClick={previewProperty}
-                    className="inline-flex items-center px-4 py-2 text-sm font-medium border border-gray-300 bg-white text-gray-700 rounded hover:bg-gray-50" // AgentsPage button style
-                  >
-                    <Eye className="w-4 h-4 mr-2" />
-                    Preview
-                  </button>
-                )}
               </div>
             </div>
 
-            {/* Validation Indicator */}
             <ValidationIndicator formData={formData} />
           </div>
 
-          {/* Form Content - Main container consistent with AgentsPage */}
-          <div className="border border-gray-300 border-t-0" style={{ backgroundColor: "rgb(236,237,238)" }}> {/* Consistent table background */}
-            <div className="p-3"> {/* Padding for content within this background */}
-              {/* Note: Tabs structure is simplified here as the original tabs had minimal content difference */}
+          {/* Form Content */}
+          <div className="border border-gray-300 border-t-0" style={{ backgroundColor: "rgb(236,237,238)" }}>
+            <div className="p-3">
               <div className="grid grid-cols-12 gap-3">
                 {/* LEFT COLUMN */}
                 <div className="col-span-12 md:col-span-4 space-y-3">
@@ -850,9 +793,7 @@ export default function AddPropertyPage() {
                         <button
                           type="button"
                           onClick={() => handleChange("featured_property", formData.featured_property === "1" ? "0" : "1")}
-                          className={`h-9 border border-gray-300 rounded text-sm ${ // Added rounded, text-sm
-                            formData.featured_property === "1" ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-700" // Amber for featured
-                          }`}
+                          className={`h-9 border border-gray-300 rounded text-sm ${formData.featured_property === "1" ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-700"}`}
                         >
                           Featured
                         </button>
@@ -861,14 +802,12 @@ export default function AddPropertyPage() {
                           className={selectCls}
                           value={formData.status}
                           onChange={(e) => handleChange("status", e.target.value)}
-                          title="Status"
                         >
                           <option value={1}>Active</option>
                           <option value={0}>Inactive</option>
                           <option value={2}>Draft</option>
                         </select>
                       </div>
-                      <div className="mt-2 text-xs text-gray-500">Toggle featured & set status</div> {/* Changed text-[11px] to text-xs */}
                     </div>
                   </div>
 
@@ -881,9 +820,9 @@ export default function AddPropertyPage() {
                         <div className="grid grid-cols-12 gap-2 items-center">
                           <label className={`${labelRequiredCls} col-span-4`}>Property Name</label>
                           <div className="col-span-8">
-                            <input 
+                            <input
                               className={getFieldClass("property_name")}
-                              value={formData.property_name || ""} 
+                              value={formData.property_name || ""}
                               onChange={(e) => handleChange("property_name", e.target.value)}
                               onBlur={() => handleBlur("property_name")}
                               placeholder="Enter property name"
@@ -896,15 +835,19 @@ export default function AddPropertyPage() {
 
                         {/* Property Slug */}
                         <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelRequiredCls} col-span-4`}>Property Slug</label>
+                          <label className={`${labelCls} col-span-4`}>Slug</label>
                           <div className="col-span-8 flex gap-1">
-                            <input 
-                              className={getFieldClass("property_slug")}
-                              value={formData.property_slug || ""} 
+                            <input
+                              className={fieldCls}
+                              value={formData.property_slug || ""}
                               onChange={(e) => handleChange("property_slug", e.target.value)}
-                              onBlur={() => handleBlur("property_slug")}
+                              readOnly
                             />
-                            <button type="button" onClick={generateSlug} className="h-9 px-3 border border-gray-300 bg-white text-xs rounded hover:bg-gray-50 whitespace-nowrap"> {/* Changed text-[11px] to text-xs, added rounded, h-9 */}
+                            <button
+                              type="button"
+                              onClick={handleGenerateSlug}
+                              className="h-9 px-3 border border-gray-300 bg-white text-xs rounded hover:bg-gray-50 whitespace-nowrap"
+                            >
                               Generate
                             </button>
                           </div>
@@ -914,42 +857,31 @@ export default function AddPropertyPage() {
                         <div className="grid grid-cols-12 gap-2 items-center">
                           <label className={`${labelRequiredCls} col-span-4`}>Price (AED)</label>
                           <div className="col-span-8">
-                            <input 
+                            <input
                               className={getFieldClass("price")}
-                              type="number" 
-                              value={formData.price || ""} 
+                              type="number"
+                              value={formData.price || ""}
                               onChange={(e) => handleChange("price", e.target.value)}
                               onBlur={() => handleBlur("price")}
                               placeholder="15000000"
                             />
                             {errors.price && touched.price && (
-                              <span className="text-xs text-red-500">{errors.price}</span> 
+                              <span className="text-xs text-red-500">{errors.price}</span>
                             )}
                           </div>
                         </div>
 
-                        {/* Price End (Optional) */}
+                        {/* Price End */}
                         <div className="grid grid-cols-12 gap-2 items-center">
                           <label className={`${labelCls} col-span-4`}>Price End</label>
                           <div className="col-span-8">
-                            <input 
+                            <input
                               className={fieldCls}
-                              type="number" 
-                              value={formData.price_end || ""} 
+                              type="number"
+                              value={formData.price_end || ""}
                               onChange={(e) => handleChange("price_end", e.target.value)}
                               placeholder="16000000"
                             />
-                          </div>
-                        </div>
-
-                        {/* Ask to Price */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Ask to Price</label>
-                          <div className="col-span-8">
-                            <select className={selectCls} value={formData.askprice} onChange={(e) => handleChange("askprice", e.target.value)}>
-                              <option value="0">No</option>
-                              <option value="1">Yes</option>
-                            </select>
                           </div>
                         </div>
 
@@ -957,9 +889,9 @@ export default function AddPropertyPage() {
                         <div className="grid grid-cols-12 gap-2 items-center">
                           <label className={`${labelRequiredCls} col-span-4`}>Bedrooms</label>
                           <div className="col-span-8">
-                            <select 
+                            <select
                               className={getFieldClass("bedroom", selectCls, selectErrorCls)}
-                              value={formData.bedroom} 
+                              value={formData.bedroom}
                               onChange={(e) => handleChange("bedroom", e.target.value)}
                               onBlur={() => handleBlur("bedroom")}
                             >
@@ -974,65 +906,36 @@ export default function AddPropertyPage() {
                               <option value="7+">7+</option>
                             </select>
                             {errors.bedroom && touched.bedroom && (
-                              <span className="text-xs text-red-500">{errors.bedroom}</span> 
+                              <span className="text-xs text-red-500">{errors.bedroom}</span>
                             )}
                           </div>
                         </div>
 
                         {/* Bathrooms */}
                         <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelRequiredCls} col-span-4`}>Bathrooms</label>
+                          <label className={`${labelCls} col-span-4`}>Bathrooms</label>
                           <div className="col-span-8">
-                            <input 
-                              className={getFieldClass("bathrooms")}
-                              value={formData.bathrooms || ""} 
+                            <input
+                              className={fieldCls}
+                              type="number"
+                              value={formData.bathrooms || ""}
                               onChange={(e) => handleChange("bathrooms", e.target.value)}
-                              onBlur={() => handleBlur("bathrooms")}
                               placeholder="6"
                             />
-                            {errors.bathrooms && touched.bathrooms && (
-                              <span className="text-xs text-red-500">{errors.bathrooms}</span> 
-                            )}
                           </div>
                         </div>
 
                         {/* Area */}
                         <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelRequiredCls} col-span-4`}>Area (Sq.Ft.)</label>
+                          <label className={`${labelCls} col-span-4`}>Area (Sq.Ft.)</label>
                           <div className="col-span-8">
-                            <input 
-                              className={getFieldClass("area")}
-                              type="number" 
-                              value={formData.area || ""} 
+                            <input
+                              className={fieldCls}
+                              type="number"
+                              value={formData.area || ""}
                               onChange={(e) => handleChange("area", e.target.value)}
-                              onBlur={() => handleBlur("area")}
                               placeholder="8500"
                             />
-                            {errors.area && touched.area && (
-                              <span className="text-xs text-red-500">{errors.area}</span> 
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Area End (Optional) */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Area End</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              type="number" 
-                              value={formData.area_end || ""} 
-                              onChange={(e) => handleChange("area_end", e.target.value)}
-                              placeholder="9000"
-                            />
-                          </div>
-                        </div>
-
-                        {/* DLD Permit */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>DLD Permit</label>
-                          <div className="col-span-8">
-                            <input className={fieldCls} value={formData.dld_permit || ""} onChange={(e) => handleChange("dld_permit", e.target.value)} />
                           </div>
                         </div>
 
@@ -1040,9 +943,9 @@ export default function AddPropertyPage() {
                         <div className="grid grid-cols-12 gap-2 items-center">
                           <label className={`${labelCls} col-span-4`}>RERA Number</label>
                           <div className="col-span-8">
-                            <input 
+                            <input
                               className={fieldCls}
-                              value={formData.rera_number || ""} 
+                              value={formData.rera_number || ""}
                               onChange={(e) => handleChange("rera_number", e.target.value)}
                               placeholder="RERA123456"
                             />
@@ -1053,49 +956,28 @@ export default function AddPropertyPage() {
                         <div className="grid grid-cols-12 gap-2 items-center">
                           <label className={`${labelCls} col-span-4`}>Unit Number</label>
                           <div className="col-span-8">
-                            <input 
+                            <input
                               className={fieldCls}
-                              value={formData.unit_number || ""} 
+                              value={formData.unit_number || ""}
                               onChange={(e) => handleChange("unit_number", e.target.value)}
                               placeholder="Villa 45"
                             />
                           </div>
                         </div>
-
+                        
                         {/* Floor Number */}
                         <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Floor Number</label>
+                          <label className={`${labelCls} col-span-4`}>Floor</label>
                           <div className="col-span-8">
-                            <input 
+                            <input
                               className={fieldCls}
-                              value={formData.floor_number || ""} 
+                              value={formData.floor_number || ""}
                               onChange={(e) => handleChange("floor_number", e.target.value)}
                               placeholder="G+2"
                             />
                           </div>
                         </div>
-
-                        {/* Completion Date */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Completion Date</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              type="date"
-                              value={formData.completion_date || ""} 
-                              onChange={(e) => handleChange("completion_date", e.target.value)}
-                            />
-                          </div>
-                        </div>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* Agent */}
-                  <div className={boxCls}>
-                    <div className={boxHeaderCls}>Agent</div>
-                    <div className={boxBodyCls}>
-                      <input className={fieldCls} value={formData.agent_id || ""} onChange={(e) => handleChange("agent_id", e.target.value)} placeholder="Agent ID" />
                     </div>
                   </div>
 
@@ -1117,73 +999,72 @@ export default function AddPropertyPage() {
                   <div className={boxCls}>
                     <div className={boxHeaderCls}>Images</div>
                     <div className={boxBodyCls}>
-                      {/* Featured Image */}
-                      <div className="text-sm text-gray-700 mb-2">Featured Image</div> {/* Changed text-[12px] to text-sm */}
+                      <div className="text-sm text-gray-700 mb-2">Featured Image</div>
                       {selectedMainImage && (
-                        <div className="mb-2">
-                          <div className="relative group">
-                            <div className="relative overflow-hidden border border-gray-300 bg-white ring-1 ring-blue-400 rounded"> {/* Added rounded */}
-                              <img src={URL.createObjectURL(selectedMainImage)} alt="Main" className="w-full h-28 object-cover" />
-                              <div className="absolute top-2 left-2 px-2 py-1 bg-blue-600 text-white text-xs rounded-full"> {/* Added rounded-full, text-xs */}
-                                Featured Image
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => removeNewImage(null, "main")}
-                                className="absolute top-2 right-2 w-8 h-8 bg-red-600 hover:bg-red-700 text-white flex items-center justify-center rounded-full" // Added rounded-full
-                                title="Delete image"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
+                        <div className="mb-2 relative">
+                          <img
+                            src={URL.createObjectURL(selectedMainImage)}
+                            alt="Main"
+                            className="w-full h-28 object-cover rounded border"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeNewImage(null, "main")}
+                            className="absolute top-2 right-2 w-6 h-6 bg-red-600 text-white rounded-full flex items-center justify-center"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                         </div>
                       )}
-                      <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, "main")} className="text-xs" /> {/* Changed text-[11px] to text-xs */}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleImageUpload(e, "main")}
+                        className="text-xs"
+                      />
 
-                      {/* Gallery Images */}
-                      <div className="mt-4 text-sm text-gray-700 mb-2"> {/* Changed text-[12px] to text-sm */}
-                        Gallery Images ({selectedImages.length}/10)
+                      <div className="mt-4 text-sm text-gray-700 mb-2">
+                        Gallery ({selectedImages.length}/10)
                       </div>
                       {selectedImages.length > 0 && (
                         <div className="grid grid-cols-2 gap-2 mb-2">
                           {selectedImages.map((img, i) => (
-                            <div key={i} className="relative group">
-                              <div className="relative overflow-hidden border border-gray-300 bg-white rounded"> {/* Added rounded */}
-                                <img src={URL.createObjectURL(img)} alt={`Gallery ${i}`} className="w-full h-28 object-cover" />
-                                <button
-                                  type="button"
-                                  onClick={() => removeNewImage(i, "gallery")}
-                                  className="absolute top-2 right-2 w-8 h-8 bg-red-600 hover:bg-red-700 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all rounded-full" // Added rounded-full
-                                  title="Delete image"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
+                            <div key={i} className="relative">
+                              <img
+                                src={URL.createObjectURL(img)}
+                                alt={`Gallery ${i}`}
+                                className="w-full h-20 object-cover rounded border"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeNewImage(i, "gallery")}
+                                className="absolute top-1 right-1 w-5 h-5 bg-red-600 text-white rounded-full flex items-center justify-center"
+                              >
+                                <Trash2 className="w-2.5 h-2.5" />
+                              </button>
                             </div>
                           ))}
                         </div>
                       )}
-                      <input type="file" accept="image/*" multiple onChange={(e) => handleImageUpload(e, "gallery")} className="text-xs" /> {/* Changed text-[11px] to text-xs */}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => handleImageUpload(e, "gallery")}
+                        className="text-xs"
+                      />
                     </div>
                   </div>
                 </div>
 
                 {/* RIGHT COLUMN */}
                 <div className="col-span-12 md:col-span-8 space-y-3">
-                  {/* Listing type + Property Purpose + Property Type */}
+                  {/* Listing Type + Property Type */}
                   <div className={boxCls}>
                     <div className={boxBodyCls}>
-                      <div className="text-sm font-semibold text-gray-800 mb-2"> {/* Changed text-[13px] to text-sm */}
-                        Listing Type <span className="text-red-500">*</span>
-                      </div>
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-800"> {/* Changed text-[12px] to text-sm */}
-                        {[
-                          ["sale", "For Sale"],
-                          ["rent", "For Rent"],
-                          ["Off plan", "Off Plan"],
-                          ["Ready", "Ready"],
-                        ].map(([val, label]) => (
+                      <div className="text-sm font-semibold text-gray-800 mb-2">Listing Type *</div>
+                      <div className="flex flex-wrap gap-4 text-sm">
+                        {[["sale", "For Sale"], ["rent", "For Rent"], ["Off plan", "Off Plan"]].map(([val, label]) => (
                           <label key={val} className="flex items-center gap-2">
                             <input
                               type="radio"
@@ -1196,14 +1077,9 @@ export default function AddPropertyPage() {
                         ))}
                       </div>
 
-                      <div className="mt-4 text-sm font-semibold text-gray-800 mb-2"> {/* Changed text-[13px] to text-sm */}
-                        Property Purpose <span className="text-red-500">*</span>
-                      </div>
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-800"> {/* Changed text-[12px] to text-sm */}
-                        {[
-                          ["Sale", "Sale"],
-                          ["Rent", "Rent"],
-                        ].map(([val, label]) => (
+                      <div className="mt-4 text-sm font-semibold text-gray-800 mb-2">Property Purpose *</div>
+                      <div className="flex flex-wrap gap-4 text-sm">
+                        {[["Sale", "Sale"], ["Rent", "Rent"]].map(([val, label]) => (
                           <label key={val} className="flex items-center gap-2">
                             <input
                               type="radio"
@@ -1216,16 +1092,10 @@ export default function AddPropertyPage() {
                         ))}
                       </div>
 
-                      <div className="mt-4 text-sm font-semibold text-gray-800 mb-2"> {/* Changed text-[13px] to text-sm */}
-                        Property Type <span className="text-red-500">*</span>
-                      </div>
+                      <div className="mt-4 text-sm font-semibold text-gray-800 mb-2">Property Type *</div>
                       <div className="grid grid-cols-3 gap-2">
-                        {[
-                          "Apartment", "Villa", "Townhouse",
-                          "Penthouse", "Duplex", "Hotel Apartment",
-                          "Commercial", "Office", "Land"
-                        ].map(type => (
-                          <label key={type} className="flex items-center gap-2 text-sm"> {/* Changed text-[12px] to text-sm */}
+                        {["Apartment", "Villa", "Townhouse", "Penthouse", "Duplex", "Hotel Apartment", "Commercial", "Office", "Land"].map((type) => (
+                          <label key={type} className="flex items-center gap-2 text-sm">
                             <input
                               type="radio"
                               name="property_type"
@@ -1244,12 +1114,12 @@ export default function AddPropertyPage() {
                     <div className={boxHeaderCls}>Location Details</div>
                     <div className={boxBodyCls}>
                       <div className="grid grid-cols-2 gap-4">
-                        {/* City */}
+                        {/* City - REQUIRED */}
                         <div>
                           <label className={`${labelRequiredCls} block mb-1`}>City</label>
-                          <input 
+                          <input
                             className={getFieldClass("city")}
-                            value={formData.city || ""} 
+                            value={formData.city || ""}
                             onChange={(e) => handleChange("city", e.target.value)}
                             onBlur={() => handleBlur("city")}
                             placeholder="Dubai"
@@ -1259,80 +1129,84 @@ export default function AddPropertyPage() {
                           )}
                         </div>
 
-                        {/* Community */}
+                        {/* Community - REQUIRED */}
                         <div>
                           <label className={`${labelRequiredCls} block mb-1`}>Community</label>
-                          <input 
+                          <input
                             className={getFieldClass("community")}
-                            value={formData.community || ""} 
+                            value={formData.community || ""}
                             onChange={(e) => handleChange("community", e.target.value)}
                             onBlur={() => handleBlur("community")}
                             placeholder="Palm Jumeirah"
                           />
                           {errors.community && touched.community && (
-                            <span className="text-xs text-red-500">{errors.community}</span> 
+                            <span className="text-xs text-red-500">{errors.community}</span>
                           )}
                         </div>
 
                         {/* Sub Community */}
                         <div>
                           <label className={`${labelCls} block mb-1`}>Sub Community</label>
-                          <input 
+                          <input
                             className={fieldCls}
-                            value={formData.sub_community || ""} 
+                            value={formData.sub_community || ""}
                             onChange={(e) => handleChange("sub_community", e.target.value)}
                             placeholder="Frond A"
                           />
                         </div>
 
-                        {/* Location */}
+                        {/* Building Name */}
                         <div>
-                          <label className={`${labelRequiredCls} block mb-1`}>Location</label>
-                          <input 
-                            className={getFieldClass("location")}
-                            value={formData.location || ""} 
-                            onChange={(e) => handleChange("location", e.target.value)}
-                            onBlur={() => handleBlur("location")}
-                            placeholder="Palm Jumeirah, Dubai"
+                          <label className={`${labelCls} block mb-1`}>Building Name</label>
+                          <input
+                            className={fieldCls}
+                            value={formData.BuildingName || ""}
+                            onChange={(e) => handleChange("BuildingName", e.target.value)}
+                            placeholder="Palm Residence"
                           />
-                          {errors.location && touched.location && (
-                            <span className="text-xs text-red-500">{errors.location}</span>
-                          )}
                         </div>
                       </div>
 
-                      {/* Address */}
+                      {/* Location (auto-generated) */}
                       <div className="mt-3">
-                        <label className={`${labelRequiredCls} block mb-1`}>Full Address</label>
+                        <label className={`${labelCls} block mb-1`}>Location</label>
+                        <input
+                          className={fieldCls}
+                          value={formData.location || ""}
+                          onChange={(e) => handleChange("location", e.target.value)}
+                          placeholder="Auto-generated from City & Community"
+                        />
+                        <span className="text-xs text-gray-500">Auto-filled from City & Community</span>
+                      </div>
+
+                      {/* Full Address */}
+                      <div className="mt-3">
+                        <label className={`${labelCls} block mb-1`}>Full Address</label>
                         <textarea
-                          className={`w-full border ${errors.address && touched.address ? 'border-red-400 bg-red-50' : 'border-gray-300 bg-white'} px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded`} // Added rounded, text-sm
+                          className="w-full border border-gray-300 bg-white px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded"
                           rows={2}
                           value={formData.address || ""}
                           onChange={(e) => handleChange("address", e.target.value)}
-                          onBlur={() => handleBlur("address")}
                           placeholder="Palm Jumeirah, Frond A, Dubai, UAE"
                         />
-                        {errors.address && touched.address && (
-                          <span className="text-xs text-red-500">{errors.address}</span>
-                        )}
                       </div>
 
                       {/* Map Coordinates */}
                       <div className="grid grid-cols-2 gap-4 mt-3">
                         <div>
                           <label className={`${labelCls} block mb-1`}>Latitude</label>
-                          <input 
+                          <input
                             className={fieldCls}
-                            value={formData.map_latitude || ""} 
+                            value={formData.map_latitude || ""}
                             onChange={(e) => handleChange("map_latitude", e.target.value)}
                             placeholder="25.1128"
                           />
                         </div>
                         <div>
                           <label className={`${labelCls} block mb-1`}>Longitude</label>
-                          <input 
+                          <input
                             className={fieldCls}
-                            value={formData.map_longitude || ""} 
+                            value={formData.map_longitude || ""}
                             onChange={(e) => handleChange("map_longitude", e.target.value)}
                             placeholder="55.1392"
                           />
@@ -1341,34 +1215,28 @@ export default function AddPropertyPage() {
                     </div>
                   </div>
 
-                  {/* Description */}
+                  {/* Description with SimpleTextEditor */}
                   <div className={boxCls}>
-                    <div className={boxHeaderCls}>
-                      Description <span className="text-red-500">*</span>
-                    </div>
+                    <div className={boxHeaderCls}>Description *</div>
                     <div className={boxBodyCls}>
-                      <textarea
-                        className={`w-full border ${errors.description && touched.description ? 'border-red-400 bg-red-50' : 'border-gray-300 bg-white'} px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded`} // Added rounded, text-sm
-                        rows={6}
-                        value={formData.description || ""}
-                        onChange={(e) => handleChange("description", e.target.value)}
-                        onBlur={() => handleBlur("description")}
-                        placeholder="Write detailed property description... (minimum 50 words recommended)"
-                      />
+                      <div className={`border rounded ${errors.description && touched.description ? "border-red-400" : "border-gray-300"}`}>
+                        <SimpleTextEditor
+                          value={formData.description || ""}
+                          onChange={handleDescriptionChange}
+                          placeholder="Write detailed property description... (minimum 50 words recommended for SEO)"
+                          minHeight="200px"
+                        />
+                      </div>
+
                       <div className="flex justify-between mt-2">
-                        <span className="text-xs text-gray-500"> 
-                          Words: {formData.description?.split(/\s+/).filter(Boolean).length || 0}
-                        </span>
-                        <span className={`text-xs ${ // Changed text-[11px] to text-xs
-                          (formData.description?.split(/\s+/).filter(Boolean).length || 0) < 50 ? 'text-amber-600' : 'text-green-600'
-                        }`}>
-                          {((formData.description?.split(/\s+/).filter(Boolean).length || 0) < 50) ? 
-                            'Minimum 50 words recommended for SEO' : 'Good length!'
-                          }
+                        <span className="text-xs text-gray-500">Words: {descriptionWordCount}</span>
+                        <span className={`text-xs ${descriptionWordCount < 50 ? "text-amber-600" : "text-green-600"}`}>
+                          {descriptionWordCount < 50 ? `${50 - descriptionWordCount} more needed` : "✓ Good!"}
                         </span>
                       </div>
+
                       {errors.description && touched.description && (
-                        <span className="text-xs text-red-500">{errors.description}</span>
+                        <span className="text-xs text-red-500 block mt-1">{errors.description}</span>
                       )}
                     </div>
                   </div>
@@ -1381,28 +1249,28 @@ export default function AddPropertyPage() {
                         <div>
                           <label className={`${labelCls} block mb-2`}>Amenities (comma separated)</label>
                           <textarea
-                            className="w-full border border-gray-300 bg-white px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded" // Added rounded, text-sm
+                            className="w-full border border-gray-300 bg-white px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded"
                             rows={3}
                             value={formData.amenities || ""}
                             onChange={(e) => handleChange("amenities", e.target.value)}
-                            placeholder="Private Beach,Swimming Pool,Gym,Sauna,Jacuzzi,Garden,Parking,Smart Home"
+                            placeholder="Pool,Gym,Parking,Garden"
                           />
                         </div>
                         <div>
-                          <label className={`${labelCls} block mb-2`}>Property Features (comma separated)</label>
+                          <label className={`${labelCls} block mb-2`}>Features (comma separated)</label>
                           <textarea
-                            className="w-full border border-gray-300 bg-white px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded" // Added rounded, text-sm
+                            className="w-full border border-gray-300 bg-white px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded"
                             rows={3}
                             value={formData.property_features || ""}
                             onChange={(e) => handleChange("property_features", e.target.value)}
-                            placeholder="Sea View,Private Pool,Private Garden,Maids Room,Guest Room"
+                            placeholder="Sea View,Private Pool,Maids Room"
                           />
                         </div>
                       </div>
-                      
+
                       <div className="grid grid-cols-4 gap-4 mt-4">
                         <div>
-                          <label className={`${labelCls} block mb-2`}>Property Status</label>
+                          <label className={`${labelCls} block mb-2`}>Status</label>
                           <select className={selectCls} value={formData.property_status} onChange={(e) => handleChange("property_status", e.target.value)}>
                             <option value="Ready">Ready</option>
                             <option value="Off Plan">Off Plan</option>
@@ -1442,37 +1310,17 @@ export default function AddPropertyPage() {
                     <div className={boxHeaderCls}>Quick Actions</div>
                     <div className={boxBodyCls}>
                       <div className="grid grid-cols-4 gap-2">
-                        <button
-                          type="button"
-                          onClick={saveAsDraft}
-                          className="h-9 border border-gray-300 bg-white text-sm rounded hover:bg-gray-50 flex items-center justify-center gap-1" // Adjusted text, rounded, h-9
-                        >
-                          <Save className="w-4 h-4" />
-                          Save Draft
+                        <button type="button" onClick={saveAsDraft} className="h-9 border border-gray-300 bg-white text-sm rounded hover:bg-gray-50 flex items-center justify-center gap-1">
+                          <Save className="w-4 h-4" /> Draft
                         </button>
-                        <button
-                          type="button"
-                          onClick={copyFormData}
-                          className="h-9 border border-gray-300 bg-white text-sm rounded hover:bg-gray-50 flex items-center justify-center gap-1" // Adjusted text, rounded, h-9
-                        >
-                          <Copy className="w-4 h-4" />
-                          Copy Data
+                        <button type="button" onClick={copyFormData} className="h-9 border border-gray-300 bg-white text-sm rounded hover:bg-gray-50 flex items-center justify-center gap-1">
+                          <Copy className="w-4 h-4" /> Copy
                         </button>
-                        <button
-                          type="button"
-                          onClick={resetForm}
-                          className="h-9 border border-gray-300 bg-white text-sm rounded hover:bg-gray-50 flex items-center justify-center gap-1" // Adjusted text, rounded, h-9
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                          Reset
+                        <button type="button" onClick={resetForm} className="h-9 border border-gray-300 bg-white text-sm rounded hover:bg-gray-50 flex items-center justify-center gap-1">
+                          <RotateCcw className="w-4 h-4" /> Reset
                         </button>
-                        <button
-                          type="button"
-                          onClick={fillSampleData}
-                          className="h-9 border border-blue-300 bg-blue-50 text-blue-700 text-sm rounded hover:bg-blue-100 flex items-center justify-center gap-1" // Adjusted text, rounded, h-9
-                        >
-                          <Upload className="w-4 h-4" />
-                          Sample
+                        <button type="button" onClick={fillSampleData} className="h-9 border border-blue-300 bg-blue-50 text-blue-700 text-sm rounded hover:bg-blue-100 flex items-center justify-center gap-1">
+                          <Upload className="w-4 h-4" /> Sample
                         </button>
                       </div>
                     </div>
@@ -1480,25 +1328,29 @@ export default function AddPropertyPage() {
                 </div>
               </div>
 
-              {/* Footer bar - consistent with AgentsPage pagination/footer bar */}
+              {/* Footer Bar */}
               <div className="mt-3 bg-white border border-gray-300 p-3 rounded-b flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() => window.location.href = "/admin/properties"}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200" // Consistent secondary button style
+                  onClick={() => (window.location.href = "/admin/properties")}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
                 >
                   Cancel
                 </button>
-                
+
                 <div className="flex items-center gap-3">
-                  <div className="text-xs text-gray-500"> {/* Changed text-[11px] to text-xs */}
-                    {REQUIRED_FIELDS.filter(({ field }) => !formData[field]).length} required fields remaining
+                  <div className="text-xs text-gray-500">
+                    {REQUIRED_FIELDS.filter(({ field }) => {
+                      const value = formData[field];
+                      if (field === "description") return countWordsInHTML(value) < 10;
+                      return !value;
+                    }).length} required fields remaining
                   </div>
                   <button
                     type="button"
                     onClick={handleSubmit}
                     disabled={saving}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50" // Consistent green save button style
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50"
                   >
                     {saving ? (
                       <>

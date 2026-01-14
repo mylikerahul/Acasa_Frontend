@@ -1,115 +1,80 @@
+// app/admin/jobs/add/page.jsx
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/router"; // Make sure you have next/router installed
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
-  Loader2,
-  Plus,
-  Save,
   ArrowLeft,
+  Save,
+  Loader2,
   Briefcase,
   MapPin,
-  Timer,
-  Info,
-  Link,
-  Tag,
-  Hash,
-  X,
-  Trash2,
-  CheckCircle,
+  Globe,
+  FileText,
+  Star,
+  Zap,
   Eye,
+  X,
+  AlertCircle,
+  CheckCircle,
+  Info,
 } from "lucide-react";
 import { Toaster, toast } from "react-hot-toast";
+import AdminNavbar from "../../dashboard/header/DashboardNavbar";
 import {
   getAdminToken,
   isAdminTokenValid,
   getCurrentSessionType,
   logoutAll,
-} from "../../../utils/auth";
-import AdminNavbar from "../dashboard/header/DashboardNavbar";
+} from "../../../../utils/auth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // ==================== CONSTANTS ====================
-const STATUS_OPTIONS = [
-  { value: "active", label: "Active" },
-  { value: "inactive", label: "Inactive" },
-  { value: "closed", label: "Closed" },
-];
-
-const TYPE_OPTIONS = [
-  { value: "Remote", label: "Remote" },
+const JOB_TYPES = [
   { value: "Full-time", label: "Full-time" },
   { value: "Part-time", label: "Part-time" },
   { value: "Contract", label: "Contract" },
   { value: "Freelance", label: "Freelance" },
+  { value: "Remote", label: "Remote" },
+  { value: "Internship", label: "Internship" },
 ];
 
-// ==================== TOAST HELPERS ====================
-const showSuccess = (message) => {
-  toast.success(message, {
-    duration: 3000,
-    position: "top-right",
-    style: {
-      background: "#10B981",
-      color: "#fff",
-      fontWeight: "500",
-    },
-    iconTheme: {
-      primary: "#fff",
-      secondary: "#10B981",
-    },
-  });
-};
+const STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+  { value: "draft", label: "Draft" },
+];
 
-const showError = (message) => {
-  toast.error(message, {
-    duration: 4000,
-    position: "top-right",
-    style: {
-      background: "#EF4444",
-      color: "#fff",
-      fontWeight: "500",
-    },
-    iconTheme: {
-      primary: "#fff",
-      secondary: "#EF4444",
-    },
-  });
-};
-
-const showLoading = (message) => {
-  return toast.loading(message, {
-    position: "top-right",
-  });
-};
-
-// ==================== FAST NAVIGATION ====================
-const fastNavigate = (url) => {
-  if (typeof window !== "undefined") {
-    window.location.href = url;
-  }
-};
-
-// ==================== SLUG GENERATOR ====================
-const generateSlug = (text) => {
-  if (!text) return "";
-  return text
-    .toString()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/[^\w-]+/g, "")
-    .replace(/--+/g, "-");
+const INITIAL_FORM_DATA = {
+  title: "",
+  job_title: "",
+  description: "",
+  sub_title: "",
+  sub_description: "",
+  about_team: "",
+  about_company: "",
+  city_name: "",
+  responsibilities: "",
+  type: "Full-time",
+  link: "",
+  status: "active",
+  slug: "",
+  featured: false,
+  urgent: false,
+  seo_title: "",
+  seo_description: "",
+  seo_keyword: "",
+  salary_min: "",
+  salary_max: "",
+  salary_currency: "AED",
+  experience_min: "",
+  experience_max: "",
 };
 
 // ==================== MAIN COMPONENT ====================
-export default function AddEditJobPage() {
+export default function AddJobPage() {
   const router = useRouter();
-  const { id } = router.query; // Get ID from URL for edit mode
-  const isEditMode = !!id;
 
   // Auth State
   const [admin, setAdmin] = useState(null);
@@ -118,414 +83,224 @@ export default function AddEditJobPage() {
   const [logoutLoading, setLogoutLoading] = useState(false);
 
   // Form State
-  const [formData, setFormData] = useState({
-    full_name: "",
-    title: "",
-    description: "",
-    sub_title: "",
-    sub_description: "",
-    about_team: "",
-    about_company: "",
-    job_title: "",
-    city_name: "",
-    responsibilities: "",
-    type: "", // Job type
-    link: "", // External application link
-    facilities: [], // Array of strings (e.g., "Free lunch", "Gym")
-    social: [], // Array of objects { name: "LinkedIn", url: "..." }
-    seo_title: "",
-    seo_description: "",
-    seo_keyword: "",
-    status: "active",
-    slug: "",
-  });
+  const [formData, setFormData] = useState(INITIAL_FORM_DATA);
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [slugAvailable, setSlugAvailable] = useState(null);
+  const [checkingSlug, setCheckingSlug] = useState(false);
 
   // UI State
-  const [loading, setLoading] = useState(isEditMode); // True if editing and fetching data
-  const [submitting, setSubmitting] = useState(false); // True when saving/creating
-  const [errors, setErrors] = useState({}); // Form validation errors
-  const [serverError, setServerError] = useState(null); // API error
-  const [cities, setCities] = useState([]); // List of available cities
-  const [jobTypes, setJobTypes] = useState([]); // List of available job types
-  const [slugChecking, setSlugChecking] = useState(false);
-  const [slugAvailable, setSlugAvailable] = useState(true);
+  const [activeTab, setActiveTab] = useState("basic");
 
-  const slugCheckTimeout = useRef(null);
-
-  // ==================== AUTH VERIFICATION ====================
+  // ==================== AUTH ====================
   useEffect(() => {
     const verifyAuth = async () => {
       try {
         const token = getAdminToken();
-        const sessionType = getCurrentSessionType();
-
-        if (!token || !isAdminTokenValid()) {
+        if (!token || !isAdminTokenValid() || getCurrentSessionType() !== "admin") {
           logoutAll();
-          fastNavigate("/admin/login");
+          router.replace("/admin/login");
           return;
         }
 
-        if (sessionType !== "admin") {
-          logoutAll();
-          fastNavigate("/admin/login");
-          return;
-        }
+        const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
+          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
+        });
 
-        // Try to verify token with API, if fails, fallback to parsing token payload
-        try {
-          const response = await fetch(
-            `${API_BASE_URL}/api/v1/users/admin/verify-token`,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
-              credentials: "include",
-            }
-          );
-
-          if (!response.ok) throw new Error("Token verification failed");
-
+        if (response.ok) {
           const data = await response.json();
-
           if (data.success && data.admin) {
             setAdmin(data.admin);
             setIsAuthenticated(true);
-          } else {
-            // If API verification fails but token is still structurally valid
-            const payload = JSON.parse(atob(token.split(".")[1]));
-            if (payload.userType === "admin") {
-              setAdmin({
-                id: payload.id,
-                name: payload.name,
-                email: payload.email,
-                role: payload.role || "admin",
-                userType: payload.userType,
-              });
-              setIsAuthenticated(true);
-            } else {
-              logoutAll();
-              fastNavigate("/admin/login");
-              return;
-            }
           }
-        } catch (verifyError) {
-          // Fallback if API call or token verification fails
-          try {
-            const payload = JSON.parse(atob(token.split(".")[1]));
-            if (payload.userType === "admin") {
-              setAdmin({
-                id: payload.id,
-                name: payload.name,
-                email: payload.email,
-                role: payload.role || "admin",
-                userType: payload.userType,
-              });
-              setIsAuthenticated(true);
-            } else {
-              logoutAll();
-              fastNavigate("/admin/login");
-              return;
-            }
-          } catch {
-            // If token is invalid or unparseable
-            logoutAll();
-            fastNavigate("/admin/login");
-            return;
+        } else {
+          const payload = JSON.parse(atob(token.split(".")[1]));
+          if (payload.userType === "admin") {
+            setAdmin({ id: payload.id, name: payload.name, email: payload.email });
+            setIsAuthenticated(true);
+          } else {
+            throw new Error("Not admin");
           }
         }
       } catch (error) {
-        // General error during auth check
         logoutAll();
-        fastNavigate("/admin/login");
+        router.replace("/admin/login");
       } finally {
         setAuthLoading(false);
       }
     };
 
     verifyAuth();
-  }, []);
-
-  // ==================== LOGOUT HANDLER ====================
-  const handleLogout = useCallback(async () => {
-    setLogoutLoading(true);
-    const logoutToast = showLoading("Logging out...");
-
-    try {
-      const token = getAdminToken();
-
-      await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {}); // Catch error to prevent crashing, but proceed with logout
-
-      toast.dismiss(logoutToast);
-      showSuccess("Logged out successfully");
-    } catch (err) {
-      console.error("Logout error:", err);
-      toast.dismiss(logoutToast);
-      showError("Logout failed. Please try again.");
-    } finally {
-      logoutAll();
-      setAdmin(null);
-      setIsAuthenticated(false);
-      window.location.href = "/admin/login";
-      setLogoutLoading(false);
-    }
-  }, []);
+  }, [router]);
 
   // ==================== API HELPER ====================
-  const apiRequest = useCallback(async (endpoint, options = {}) => {
-    const token = getAdminToken();
+  const apiRequest = useCallback(
+    async (endpoint, options = {}) => {
+      const token = getAdminToken();
+      if (!token) throw new Error("No token");
 
-    if (!token) {
-      // This should ideally not happen if auth is verified, but good fallback
-      fastNavigate("/admin/login");
-      throw new Error("Please login to continue");
-    }
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          ...options.headers,
+        },
+      });
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        ...options.headers,
-      },
-    });
-
-    if (response.status === 401) {
-      // Session expired or invalid token
-      logoutAll();
-      fastNavigate("/admin/login");
-      throw new Error("Session expired. Please login again.");
-    }
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: "Network error" }));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
-  }, []);
-
-  // ==================== FETCH CITIES AND JOB TYPES ====================
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    const fetchDropdownData = async () => {
-      try {
-        const [citiesData, typesData] = await Promise.all([
-          apiRequest("/api/v1/jobs/cities"),
-          apiRequest("/api/v1/jobs/types"),
-        ]);
-        if (citiesData.success) {
-          setCities(citiesData.data);
-        }
-        if (typesData.success) {
-          setJobTypes(typesData.data);
-        }
-      } catch (err) {
-        console.error("Error fetching dropdown data:", err);
-        setServerError(err.message);
+      if (response.status === 401) {
+        logoutAll();
+        router.replace("/admin/login");
+        throw new Error("Session expired");
       }
-    };
 
-    fetchDropdownData();
-  }, [isAuthenticated, apiRequest]);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Request failed");
+      return data;
+    },
+    [router]
+  );
 
-  // ==================== FETCH JOB DATA FOR EDIT MODE ====================
-  useEffect(() => {
-    if (!isAuthenticated || !isEditMode || !id) return;
+  // ==================== HANDLERS ====================
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    const newValue = type === "checkbox" ? checked : value;
 
-    const fetchJob = async () => {
-      try {
-        setLoading(true);
-        setServerError(null);
-        const data = await apiRequest(`/api/v1/jobs/id/${id}`);
+    setFormData((prev) => ({ ...prev, [name]: newValue }));
 
-        if (data.success && data.data) {
-          const job = data.data;
-          setFormData({
-            full_name: job.full_name || "",
-            title: job.title || "",
-            description: job.description || "",
-            sub_title: job.sub_title || "",
-            sub_description: job.sub_description || "",
-            about_team: job.about_team || "",
-            about_company: job.about_company || "",
-            job_title: job.job_title || "",
-            city_name: job.city_name || "",
-            responsibilities: job.responsibilities || "",
-            type: job.type || "",
-            link: job.link || "",
-            // Parse JSON fields, default to empty array if null or invalid
-            facilities: job.facilities ? (typeof job.facilities === 'string' ? JSON.parse(job.facilities) : job.facilities) : [],
-            social: job.social ? (typeof job.social === 'string' ? JSON.parse(job.social) : job.social) : [],
-            seo_title: job.seo_title || "",
-            seo_description: job.seo_description || "",
-            seo_keyword: job.seo_keyword || "",
-            status: job.status || "active",
-            slug: job.slug || "",
-          });
-          setSlugAvailable(true); // Assume slug is available if it's the current job's slug
-        } else {
-          showError("Job not found or failed to load.");
-          router.push("/admin/jobs"); // Redirect to jobs list
-        }
-      } catch (err) {
-        console.error("Error fetching job:", err);
-        setServerError(err.message);
-        showError("Failed to load job data.");
-      } finally {
-        setLoading(false);
-      }
-    };
+    // Clear error for this field
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: null }));
+    }
 
-    fetchJob();
-  }, [isAuthenticated, isEditMode, id, apiRequest, router]);
+    // Auto-generate slug from title
+    if (name === "title" && !formData.slug) {
+      const slug = value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "");
+      setFormData((prev) => ({ ...prev, slug }));
+    }
+  };
 
-  // ==================== SLUG AVAILABILITY CHECK ====================
-  useEffect(() => {
-    if (!isAuthenticated || !formData.slug) {
-      setSlugAvailable(true); // No slug or not authenticated, assume available
+  const checkSlugAvailability = async (slug) => {
+    if (!slug || slug.length < 3) {
+      setSlugAvailable(null);
       return;
     }
 
-    if (slugCheckTimeout.current) {
-      clearTimeout(slugCheckTimeout.current);
+    try {
+      setCheckingSlug(true);
+      const data = await apiRequest(`/api/v1/jobs/check-slug/${slug}`);
+      setSlugAvailable(data.available);
+    } catch (err) {
+      console.error("Slug check error:", err);
+    } finally {
+      setCheckingSlug(false);
+    }
+  };
+
+  // Debounced slug check
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (formData.slug) {
+        checkSlugAvailability(formData.slug);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [formData.slug]);
+
+  const validate = () => {
+    const newErrors = {};
+
+    if (!formData.title?.trim()) {
+      newErrors.title = "Title is required";
     }
 
-    setSlugChecking(true);
-    setSlugAvailable(false); // Assume unavailable until checked
+    if (!formData.job_title?.trim()) {
+      newErrors.job_title = "Job title is required";
+    }
 
-    slugCheckTimeout.current = setTimeout(async () => {
-      try {
-        const endpoint = `/api/v1/jobs/check-slug/${formData.slug}${isEditMode ? `?exclude_id=${id}` : ''}`;
-        const data = await apiRequest(endpoint);
-        setSlugAvailable(data.available);
-      } catch (err) {
-        console.error("Slug check error:", err);
-        // On error, better to assume it might be unavailable or just show an alert
-        setSlugAvailable(false);
-        showError("Error checking slug availability. Please try again.");
-      } finally {
-        setSlugChecking(false);
+    if (!formData.type) {
+      newErrors.type = "Job type is required";
+    }
+
+    if (formData.slug && slugAvailable === false) {
+      newErrors.slug = "This slug is already taken";
+    }
+
+    if (formData.salary_min && formData.salary_max) {
+      if (Number(formData.salary_min) > Number(formData.salary_max)) {
+        newErrors.salary_min = "Minimum salary cannot be greater than maximum";
       }
-    }, 500); // Debounce for 500ms
+    }
 
-    return () => clearTimeout(slugCheckTimeout.current);
-  }, [formData.slug, isAuthenticated, isEditMode, id, apiRequest]);
-
-
-  // ==================== FORM FIELD CHANGE HANDLER ====================
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev) => ({ ...prev, [name]: "" })); // Clear error on change
-  };
-
-  const handleSlugChange = (e) => {
-    const { value } = e.target;
-    setFormData((prev) => ({ ...prev, slug: generateSlug(value) }));
-    setErrors((prev) => ({ ...prev, slug: "" }));
-  };
-
-  // ==================== DYNAMIC JSON FIELDS HANDLER (FACILITIES/SOCIAL) ====================
-  const handleArrayItemChange = (field, index, value) => {
-    setFormData((prev) => {
-      const newArray = [...prev[field]];
-      newArray[index] = value;
-      return { ...prev, [field]: newArray };
-    });
-  };
-
-  const handleAddItem = (field, initialValue = "") => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: [...prev[field], initialValue],
-    }));
-  };
-
-  const handleRemoveItem = (field, index) => {
-    setFormData((prev) => {
-      const newArray = prev[field].filter((_, i) => i !== index);
-      return { ...prev, [field]: newArray };
-    });
-  };
-
-  const handleSocialItemChange = (index, key, value) => {
-    setFormData((prev) => {
-      const newSocial = [...prev.social];
-      newSocial[index] = { ...newSocial[index], [key]: value };
-      return { ...prev, social: newSocial };
-    });
-  };
-
-  // ==================== FORM VALIDATION ====================
-  const validateForm = () => {
-    const newErrors = {};
-    if (!formData.title.trim()) newErrors.title = "Job Title is required.";
-    if (!formData.job_title.trim()) newErrors.job_title = "Display Job Title is required.";
-    if (!formData.city_name.trim()) newErrors.city_name = "City is required.";
-    if (!formData.type.trim()) newErrors.type = "Job Type is required.";
-    if (!formData.description.trim()) newErrors.description = "Description is required.";
-    if (!formData.slug.trim()) newErrors.slug = "Slug is required.";
-    else if (!slugAvailable || slugChecking) newErrors.slug = "Slug is not valid or being checked.";
+    if (formData.experience_min && formData.experience_max) {
+      if (Number(formData.experience_min) > Number(formData.experience_max)) {
+        newErrors.experience_min = "Minimum experience cannot be greater than maximum";
+      }
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  // ==================== FORM SUBMISSION ====================
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setServerError(null);
 
-    if (!validateForm()) {
-      showError("Please fill in all required fields and correct errors.");
+    if (!validate()) {
+      toast.error("Please fix the errors before submitting");
       return;
     }
 
-    setSubmitting(true);
-    const submitToast = showLoading(isEditMode ? "Updating job..." : "Creating job...");
+    const toastId = toast.loading("Creating job...");
 
     try {
-      const payload = {
+      setLoading(true);
+
+      // Prepare data
+      const submitData = {
         ...formData,
-        // Stringify JSON fields before sending to API
-        facilities: formData.facilities.length > 0 ? JSON.stringify(formData.facilities) : null,
-        social: formData.social.length > 0 ? JSON.stringify(formData.social) : null,
+        salary_min: formData.salary_min ? Number(formData.salary_min) : null,
+        salary_max: formData.salary_max ? Number(formData.salary_max) : null,
+        experience_min: formData.experience_min ? Number(formData.experience_min) : null,
+        experience_max: formData.experience_max ? Number(formData.experience_max) : null,
+        featured: formData.featured ? 1 : 0,
+        urgent: formData.urgent ? 1 : 0,
       };
 
-      let result;
-      if (isEditMode) {
-        result = await apiRequest(`/api/v1/jobs/${id}`, {
-          method: "PUT",
-          body: JSON.stringify(payload),
-        });
-      } else {
-        result = await apiRequest("/api/v1/jobs", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-      }
+      await apiRequest("/api/v1/jobs", {
+        method: "POST",
+        body: JSON.stringify(submitData),
+      });
 
-      toast.dismiss(submitToast);
-      if (result.success) {
-        showSuccess(isEditMode ? "Job updated successfully!" : "Job created successfully!");
-        router.push("/admin/jobs"); // Redirect to jobs listing page
-      } else {
-        throw new Error(result.message || "Operation failed.");
-      }
+      toast.dismiss(toastId);
+      toast.success("Job created successfully!");
+
+      // Redirect to listing
+      router.push("/admin/jobs");
     } catch (err) {
-      console.error("Submit Error:", err);
-      setServerError(err.message);
-      toast.dismiss(submitToast);
-      showError(err.message || (isEditMode ? "Failed to update job." : "Failed to create job."));
+      toast.dismiss(toastId);
+      toast.error(err.message || "Failed to create job");
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   };
+
+  const handleLogout = useCallback(async () => {
+    setLogoutLoading(true);
+    try {
+      await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getAdminToken()}` },
+      }).catch(() => {});
+    } finally {
+      logoutAll();
+      window.location.href = "/admin/login";
+    }
+  }, []);
 
   // ==================== LOADING STATE ====================
   if (authLoading) {
@@ -533,24 +308,25 @@ export default function AddEditJobPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Toaster />
         <div className="text-center">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
-          </div>
-          <p className="mt-4 text-gray-600 font-medium">
-            Verifying authentication...
-          </p>
+          <div className="w-16 h-16 border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-gray-600">Verifying authentication...</p>
         </div>
       </div>
     );
   }
 
-  if (!isAuthenticated || !admin) {
-    return null;
-  }
+  if (!isAuthenticated || !admin) return null;
+
+  const tabs = [
+    { id: "basic", label: "Basic Info", icon: FileText },
+    { id: "details", label: "Details", icon: Briefcase },
+    { id: "seo", label: "SEO", icon: Globe },
+  ];
 
   return (
     <>
-      <Toaster />
+      <Toaster position="top-right" />
+
       <AdminNavbar
         admin={admin}
         isAuthenticated={isAuthenticated}
@@ -558,457 +334,466 @@ export default function AddEditJobPage() {
         logoutLoading={logoutLoading}
       />
 
-      <div className="min-h-screen bg-gray-100 p-3">
-        <div className="max-w-4xl mx-auto bg-white border border-gray-300 rounded-lg shadow-sm">
+      <div className="min-h-screen bg-gray-100">
+        <div className="max-w-5xl mx-auto p-4 sm:p-6">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-300">
-            <h2 className="text-xl font-semibold text-gray-800">
-              {isEditMode ? "Edit Job" : "Add New Job"}
-            </h2>
-            <button
-              onClick={() => router.push("/admin/jobs")}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Jobs
-            </button>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => router.push("/admin/jobs")}
+                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">Add New Job</h1>
+                <p className="text-sm text-gray-500">Create a new job listing</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => router.push("/admin/jobs")}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Create Job
+              </button>
+            </div>
           </div>
 
-          {loading ? (
-            <div className="flex justify-center items-center h-96">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-              <p className="ml-3 text-lg text-gray-600">Loading job data...</p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="p-4">
-              {serverError && (
-                <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded relative mb-4 flex items-center gap-2">
-                  <Info className="w-5 h-5 flex-shrink-0" />
-                  <span className="block sm:inline">{serverError}</span>
-                </div>
-              )}
+          {/* Tabs */}
+          <div className="flex gap-2 mb-6 border-b">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`inline-flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.id
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
 
-              {/* General Information */}
-              <div className="mb-6 border border-gray-200 rounded-md p-4">
-                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  <Briefcase className="w-5 h-5 text-blue-600" /> General Information
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
-                      Job Title (Internal)<span className="text-red-500">*</span>
+          <form onSubmit={handleSubmit}>
+            {/* Basic Info Tab */}
+            {activeTab === "basic" && (
+              <div className="bg-white rounded-xl border p-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Title */}
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Title <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
-                      id="title"
                       name="title"
                       value={formData.title}
                       onChange={handleChange}
-                      className={`block w-full px-3 py-2 border ${errors.title ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                      placeholder="e.g., Senior Full Stack Engineer"
+                      placeholder="e.g., Senior Software Engineer"
+                      className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        errors.title ? "border-red-500" : "border-gray-300"
+                      }`}
                     />
-                    {errors.title && <p className="text-red-500 text-xs mt-1">{errors.title}</p>}
+                    {errors.title && <p className="mt-1 text-sm text-red-500">{errors.title}</p>}
                   </div>
 
+                  {/* Job Title */}
                   <div>
-                    <label htmlFor="job_title" className="block text-sm font-medium text-gray-700 mb-1">
-                      Display Job Title (Public)<span className="text-red-500">*</span>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Job Title <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
-                      id="job_title"
                       name="job_title"
                       value={formData.job_title}
                       onChange={handleChange}
-                      className={`block w-full px-3 py-2 border ${errors.job_title ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
                       placeholder="e.g., Software Engineer"
+                      className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        errors.job_title ? "border-red-500" : "border-gray-300"
+                      }`}
                     />
-                    {errors.job_title && <p className="text-red-500 text-xs mt-1">{errors.job_title}</p>}
+                    {errors.job_title && <p className="mt-1 text-sm text-red-500">{errors.job_title}</p>}
                   </div>
-                </div>
 
-                <div className="mb-4">
-                  <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 mb-1">
-                    Hiring Manager Name (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    id="full_name"
-                    name="full_name"
-                    value={formData.full_name}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="e.g., John Doe"
-                  />
-                </div>
-
-                <div className="mb-4">
-                  <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-                    Job Description<span className="text-red-500">*</span>
-                  </label>
-                  <textarea
-                    id="description"
-                    name="description"
-                    rows="5"
-                    value={formData.description}
-                    onChange={handleChange}
-                    className={`block w-full px-3 py-2 border ${errors.description ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                    placeholder="Provide a detailed description of the job role..."
-                  ></textarea>
-                  {errors.description && <p className="text-red-500 text-xs mt-1">{errors.description}</p>}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  {/* City */}
                   <div>
-                    <label htmlFor="sub_title" className="block text-sm font-medium text-gray-700 mb-1">
-                      Sub Title (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      id="sub_title"
-                      name="sub_title"
-                      value={formData.sub_title}
-                      onChange={handleChange}
-                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      placeholder="e.g., Join our innovative team"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-2">City / Location</label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        name="city_name"
+                        value={formData.city_name}
+                        onChange={handleChange}
+                        placeholder="e.g., Dubai"
+                        className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
+
+                  {/* Type */}
                   <div>
-                    <label htmlFor="type" className="block text-sm font-medium text-gray-700 mb-1">
-                      Job Type<span className="text-red-500">*</span>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Job Type <span className="text-red-500">*</span>
                     </label>
                     <select
-                      id="type"
                       name="type"
                       value={formData.type}
                       onChange={handleChange}
-                      className={`block w-full px-3 py-2 border ${errors.type ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                      className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        errors.type ? "border-red-500" : "border-gray-300"
+                      }`}
                     >
-                      <option value="">Select a type</option>
-                      {jobTypes.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
+                      {JOB_TYPES.map((type) => (
+                        <option key={type.value} value={type.value}>
+                          {type.label}
                         </option>
                       ))}
                     </select>
-                    {errors.type && <p className="text-red-500 text-xs mt-1">{errors.type}</p>}
+                    {errors.type && <p className="mt-1 text-sm text-red-500">{errors.type}</p>}
                   </div>
-                </div>
 
-                <div className="mb-4">
-                  <label htmlFor="sub_description" className="block text-sm font-medium text-gray-700 mb-1">
-                    Sub Description (Optional)
-                  </label>
-                  <textarea
-                    id="sub_description"
-                    name="sub_description"
-                    rows="3"
-                    value={formData.sub_description}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="Short additional description..."
-                  ></textarea>
+                  {/* Status */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                    <select
+                      name="status"
+                      value={formData.status}
+                      onChange={handleChange}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {STATUS_OPTIONS.map((status) => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Slug */}
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">URL Slug</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        name="slug"
+                        value={formData.slug}
+                        onChange={handleChange}
+                        placeholder="e.g., senior-software-engineer"
+                        className={`w-full px-4 py-2.5 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          errors.slug ? "border-red-500" : slugAvailable === false ? "border-red-500" : slugAvailable === true ? "border-green-500" : "border-gray-300"
+                        }`}
+                      />
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        {checkingSlug && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+                        {!checkingSlug && slugAvailable === true && (
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                        )}
+                        {!checkingSlug && slugAvailable === false && (
+                          <AlertCircle className="w-4 h-4 text-red-500" />
+                        )}
+                      </div>
+                    </div>
+                    {errors.slug && <p className="mt-1 text-sm text-red-500">{errors.slug}</p>}
+                    {slugAvailable === true && (
+                      <p className="mt-1 text-sm text-green-600">Slug is available</p>
+                    )}
+                    {slugAvailable === false && (
+                      <p className="mt-1 text-sm text-red-500">Slug is already taken</p>
+                    )}
+                  </div>
+
+                  {/* Description */}
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                    <textarea
+                      name="description"
+                      value={formData.description}
+                      onChange={handleChange}
+                      rows={5}
+                      placeholder="Enter job description..."
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                  </div>
+
+                  {/* Flags */}
+                  <div className="md:col-span-2 flex flex-wrap gap-6">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="featured"
+                        checked={formData.featured}
+                        onChange={handleChange}
+                        className="w-5 h-5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <div className="flex items-center gap-2">
+                        <Star className="w-4 h-4 text-amber-500" />
+                        <span className="text-sm font-medium text-gray-700">Featured Job</span>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="urgent"
+                        checked={formData.urgent}
+                        onChange={handleChange}
+                        className="w-5 h-5 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                      />
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-red-500" />
+                        <span className="text-sm font-medium text-gray-700">Urgent Hiring</span>
+                      </div>
+                    </label>
+                  </div>
                 </div>
               </div>
+            )}
 
-              {/* Location & Application */}
-              <div className="mb-6 border border-gray-200 rounded-md p-4">
-                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  <MapPin className="w-5 h-5 text-green-600" /> Location & Application
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {/* Details Tab */}
+            {activeTab === "details" && (
+              <div className="bg-white rounded-xl border p-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Sub Title */}
                   <div>
-                    <label htmlFor="city_name" className="block text-sm font-medium text-gray-700 mb-1">
-                      City<span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      id="city_name"
-                      name="city_name"
-                      value={formData.city_name}
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Sub Title</label>
+                    <input
+                      type="text"
+                      name="sub_title"
+                      value={formData.sub_title}
                       onChange={handleChange}
-                      className={`block w-full px-3 py-2 border ${errors.city_name ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                    >
-                      <option value="">Select a city</option>
-                      {cities.map((city) => (
-                        <option key={city} value={city}>
-                          {city}
-                        </option>
-                      ))}
-                    </select>
-                    {errors.city_name && <p className="text-red-500 text-xs mt-1">{errors.city_name}</p>}
+                      placeholder="Sub title"
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
 
+                  {/* Apply Link */}
                   <div>
-                    <label htmlFor="link" className="block text-sm font-medium text-gray-700 mb-1">
-                      Application Link (Optional)
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Apply Link</label>
                     <input
                       type="url"
-                      id="link"
                       name="link"
                       value={formData.link}
                       onChange={handleChange}
-                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      placeholder="e.g., https://careers.example.com/job/123"
+                      placeholder="https://..."
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {/* Salary Range */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Salary Range</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <input
+                        type="number"
+                        name="salary_min"
+                        value={formData.salary_min}
+                        onChange={handleChange}
+                        placeholder="Min"
+                        className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          errors.salary_min ? "border-red-500" : "border-gray-300"
+                        }`}
+                      />
+                      <input
+                        type="number"
+                        name="salary_max"
+                        value={formData.salary_max}
+                        onChange={handleChange}
+                        placeholder="Max"
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <select
+                        name="salary_currency"
+                        value={formData.salary_currency}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="AED">AED</option>
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                      </select>
+                    </div>
+                    {errors.salary_min && <p className="mt-1 text-sm text-red-500">{errors.salary_min}</p>}
+                  </div>
+
+                  {/* Experience Range */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Experience (Years)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        name="experience_min"
+                        value={formData.experience_min}
+                        onChange={handleChange}
+                        placeholder="Min"
+                        min="0"
+                        className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          errors.experience_min ? "border-red-500" : "border-gray-300"
+                        }`}
+                      />
+                      <input
+                        type="number"
+                        name="experience_max"
+                        value={formData.experience_max}
+                        onChange={handleChange}
+                        placeholder="Max"
+                        min="0"
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    {errors.experience_min && <p className="mt-1 text-sm text-red-500">{errors.experience_min}</p>}
+                  </div>
+
+                  {/* Sub Description */}
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Sub Description</label>
+                    <textarea
+                      name="sub_description"
+                      value={formData.sub_description}
+                      onChange={handleChange}
+                      rows={3}
+                      placeholder="Additional description..."
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                  </div>
+
+                  {/* Responsibilities */}
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Responsibilities</label>
+                    <textarea
+                      name="responsibilities"
+                      value={formData.responsibilities}
+                      onChange={handleChange}
+                      rows={4}
+                      placeholder="List job responsibilities..."
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                  </div>
+
+                  {/* About Team */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">About Team</label>
+                    <textarea
+                      name="about_team"
+                      value={formData.about_team}
+                      onChange={handleChange}
+                      rows={3}
+                      placeholder="About the team..."
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                  </div>
+
+                  {/* About Company */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">About Company</label>
+                    <textarea
+                      name="about_company"
+                      value={formData.about_company}
+                      onChange={handleChange}
+                      rows={3}
+                      placeholder="About the company..."
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                     />
                   </div>
                 </div>
               </div>
+            )}
 
-              {/* Team, Company & Responsibilities */}
-              <div className="mb-6 border border-gray-200 rounded-md p-4">
-                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  <Info className="w-5 h-5 text-purple-600" /> Details
-                </h3>
-
-                <div className="mb-4">
-                  <label htmlFor="responsibilities" className="block text-sm font-medium text-gray-700 mb-1">
-                    Responsibilities (Optional)
-                  </label>
-                  <textarea
-                    id="responsibilities"
-                    name="responsibilities"
-                    rows="4"
-                    value={formData.responsibilities}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="List key responsibilities..."
-                  ></textarea>
+            {/* SEO Tab */}
+            {activeTab === "seo" && (
+              <div className="bg-white rounded-xl border p-6 space-y-6">
+                <div className="flex items-center gap-2 mb-4 p-4 bg-blue-50 rounded-lg">
+                  <Info className="w-5 h-5 text-blue-600" />
+                  <p className="text-sm text-blue-700">
+                    SEO settings help your job listing appear in search engine results.
+                  </p>
                 </div>
 
-                <div className="mb-4">
-                  <label htmlFor="about_team" className="block text-sm font-medium text-gray-700 mb-1">
-                    About the Team (Optional)
-                  </label>
-                  <textarea
-                    id="about_team"
-                    name="about_team"
-                    rows="3"
-                    value={formData.about_team}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="Describe the team this role will be part of..."
-                  ></textarea>
-                </div>
-
-                <div className="mb-4">
-                  <label htmlFor="about_company" className="block text-sm font-medium text-gray-700 mb-1">
-                    About the Company (Optional)
-                  </label>
-                  <textarea
-                    id="about_company"
-                    name="about_company"
-                    rows="3"
-                    value={formData.about_company}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="Provide a brief about the company..."
-                  ></textarea>
-                </div>
-              </div>
-
-              {/* Facilities */}
-              <div className="mb-6 border border-gray-200 rounded-md p-4">
-                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-orange-600" /> Facilities & Benefits (Optional)
-                </h3>
-                {formData.facilities.map((facility, index) => (
-                  <div key={index} className="flex items-center gap-2 mb-2">
+                <div className="space-y-6">
+                  {/* SEO Title */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SEO Title</label>
                     <input
                       type="text"
-                      value={facility}
-                      onChange={(e) => handleArrayItemChange("facilities", index, e.target.value)}
-                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm"
-                      placeholder={`Facility ${index + 1}`}
+                      name="seo_title"
+                      value={formData.seo_title}
+                      onChange={handleChange}
+                      placeholder="SEO optimized title (60 characters recommended)"
+                      maxLength={70}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveItem("facilities", index)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <p className="mt-1 text-xs text-gray-500">{formData.seo_title?.length || 0}/70 characters</p>
                   </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => handleAddItem("facilities")}
-                  className="mt-2 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-                >
-                  <Plus className="w-4 h-4" /> Add Facility
-                </button>
-              </div>
 
-              {/* Social Links */}
-              <div className="mb-6 border border-gray-200 rounded-md p-4">
-                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  <Link className="w-5 h-5 text-gray-600" /> Social Links (Optional)
-                </h3>
-                {formData.social.map((socialItem, index) => (
-                  <div key={index} className="flex items-center gap-2 mb-2">
+                  {/* SEO Description */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SEO Description</label>
+                    <textarea
+                      name="seo_description"
+                      value={formData.seo_description}
+                      onChange={handleChange}
+                      rows={3}
+                      placeholder="SEO optimized description (160 characters recommended)"
+                      maxLength={200}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">{formData.seo_description?.length || 0}/200 characters</p>
+                  </div>
+
+                  {/* SEO Keywords */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SEO Keywords</label>
                     <input
                       type="text"
-                      value={socialItem.name || ""}
-                      onChange={(e) => handleSocialItemChange(index, "name", e.target.value)}
-                      className="block w-1/3 px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm"
-                      placeholder="e.g., LinkedIn"
+                      name="seo_keyword"
+                      value={formData.seo_keyword}
+                      onChange={handleChange}
+                      placeholder="Comma separated keywords (e.g., software engineer, dubai, remote)"
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <input
-                      type="url"
-                      value={socialItem.url || ""}
-                      onChange={(e) => handleSocialItemChange(index, "url", e.target.value)}
-                      className="block w-2/3 px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm"
-                      placeholder="e.g., https://linkedin.com/company/..."
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveItem("social", index)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <p className="mt-1 text-xs text-gray-500">Separate keywords with commas</p>
                   </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => handleAddItem("social", { name: "", url: "" })}
-                  className="mt-2 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-                >
-                  <Plus className="w-4 h-4" /> Add Social Link
-                </button>
-              </div>
-
-              {/* SEO Information */}
-              <div className="mb-6 border border-gray-200 rounded-md p-4">
-                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  <Tag className="w-5 h-5 text-teal-600" /> SEO Information
-                </h3>
-
-                <div className="mb-4">
-                  <label htmlFor="slug" className="block text-sm font-medium text-gray-700 mb-1">
-                    Slug (URL Identifier)<span className="text-red-500">*</span>
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      id="slug"
-                      name="slug"
-                      value={formData.slug}
-                      onChange={handleSlugChange}
-                      className={`block w-full px-3 py-2 border ${errors.slug || !slugAvailable ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-                      placeholder="e.g., senior-full-stack-engineer"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setFormData(prev => ({...prev, slug: generateSlug(prev.title || prev.job_title)}))}
-                      className="inline-flex items-center px-3 py-2 text-sm font-medium text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-                      title="Generate slug from job title"
-                    >
-                      <Hash className="w-4 h-4" />
-                    </button>
-                  </div>
-                  {errors.slug && <p className="text-red-500 text-xs mt-1">{errors.slug}</p>}
-                  {slugChecking && <p className="text-gray-500 text-xs mt-1 flex items-center"><Loader2 className="w-3 h-3 animate-spin mr-1" /> Checking slug...</p>}
-                  {!slugChecking && formData.slug && (isEditMode ? formData.slug !== router.query.id : true) && !slugAvailable && !errors.slug && <p className="text-red-500 text-xs mt-1 flex items-center"><X className="w-3 h-3 mr-1" /> This slug is already taken.</p>}
-                  {!slugChecking && formData.slug && slugAvailable && !errors.slug && <p className="text-green-600 text-xs mt-1 flex items-center"><CheckCircle className="w-3 h-3 mr-1" /> Slug is available.</p>}
-                </div>
-
-                <div className="mb-4">
-                  <label htmlFor="seo_title" className="block text-sm font-medium text-gray-700 mb-1">
-                    SEO Title (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    id="seo_title"
-                    name="seo_title"
-                    value={formData.seo_title}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="Meta title for search engines"
-                  />
-                </div>
-
-                <div className="mb-4">
-                  <label htmlFor="seo_description" className="block text-sm font-medium text-gray-700 mb-1">
-                    SEO Description (Optional)
-                  </label>
-                  <textarea
-                    id="seo_description"
-                    name="seo_description"
-                    rows="3"
-                    value={formData.seo_description}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="Meta description for search engines"
-                  ></textarea>
-                </div>
-
-                <div className="mb-4">
-                  <label htmlFor="seo_keyword" className="block text-sm font-medium text-gray-700 mb-1">
-                    SEO Keywords (Optional, comma-separated)
-                  </label>
-                  <input
-                    type="text"
-                    id="seo_keyword"
-                    name="seo_keyword"
-                    value={formData.seo_keyword}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="e.g., react jobs, frontend, software engineer"
-                  />
                 </div>
               </div>
+            )}
 
-              {/* Status */}
-              <div className="mb-6 border border-gray-200 rounded-md p-4">
-                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  <Eye className="w-5 h-5 text-gray-600" /> Status
-                </h3>
-                <div>
-                  <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
-                    Job Status
-                  </label>
-                  <select
-                    id="status"
-                    name="status"
-                    value={formData.status}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  >
-                    {STATUS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => router.push("/admin/jobs")}
-                  className="px-6 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting || slugChecking || !slugAvailable}
-                  className="inline-flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {submitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Save className="w-4 h-4" />
-                  )}
-                  {isEditMode ? "Update Job" : "Create Job"}
-                </button>
-              </div>
-            </form>
-          )}
+            {/* Bottom Actions */}
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => router.push("/admin/jobs")}
+                className="px-6 py-2.5 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Create Job
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </>

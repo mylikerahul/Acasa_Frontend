@@ -1,14 +1,16 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
   Loader2,
   CheckCircle,
   XCircle,
+  AlertCircle,
   Trash2,
+  Upload,
   Copy,
   RotateCcw,
   Save,
@@ -16,42 +18,192 @@ import {
   Globe,
   Plus,
   X,
-  RefreshCw,
   Building2,
+  ChevronDown,
+  RefreshCw,
+  ExternalLink,
+  ImageIcon,
 } from "lucide-react";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-
+import { toast, Toaster } from "react-hot-toast";
 import {
   getAdminToken,
   isAdminTokenValid,
-  getCurrentSessionType,
-  logoutAll,
 } from "../../../../../utils/auth";
+import AdminNavbar from "../../../dashboard/header/DashboardNavbar";
+import SimpleTextEditor from "../../../../components/common/SimpleTextEditor";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
+// ==================== DEBUG LOGGER ====================
+const DEBUG = true;
+
+const logger = {
+  info: (...args) => {
+    if (DEBUG) {
+      console.log(
+        `%c[INFO] ${new Date().toLocaleTimeString()}`,
+        "color: #3B82F6; font-weight: bold;",
+        ...args
+      );
+    }
+  },
+  success: (...args) => {
+    if (DEBUG) {
+      console.log(
+        `%c[SUCCESS] ${new Date().toLocaleTimeString()}`,
+        "color: #10B981; font-weight: bold;",
+        ...args
+      );
+    }
+  },
+  warn: (...args) => {
+    if (DEBUG) {
+      console.warn(
+        `%c[WARN] ${new Date().toLocaleTimeString()}`,
+        "color: #F59E0B; font-weight: bold;",
+        ...args
+      );
+    }
+  },
+  error: (...args) => {
+    if (DEBUG) {
+      console.error(
+        `%c[ERROR] ${new Date().toLocaleTimeString()}`,
+        "color: #EF4444; font-weight: bold;",
+        ...args
+      );
+    }
+  },
+  debug: (...args) => {
+    if (DEBUG) {
+      console.log(
+        `%c[DEBUG] ${new Date().toLocaleTimeString()}`,
+        "color: #8B5CF6; font-weight: bold;",
+        ...args
+      );
+    }
+  },
+  table: (data, label = "Data") => {
+    if (DEBUG) {
+      console.log(`%c[TABLE] ${label}:`, "color: #EC4899; font-weight: bold;");
+      console.table(data);
+    }
+  },
+  group: (label) => {
+    if (DEBUG) console.group(`📦 ${label}`);
+  },
+  groupEnd: () => {
+    if (DEBUG) console.groupEnd();
+  },
+};
+
+// ==================== AUTH HELPERS ====================
+const getCurrentSessionType = () => {
+  if (typeof window === "undefined") return null;
+
+  const adminToken =
+    localStorage.getItem("adminToken") || sessionStorage.getItem("adminToken");
+  const userToken =
+    localStorage.getItem("userToken") || sessionStorage.getItem("userToken");
+
+  if (adminToken) return "admin";
+  if (userToken) return "user";
+  return null;
+};
+
+const logoutAll = () => {
+  if (typeof window === "undefined") return;
+
+  logger.info("Logging out - clearing all tokens");
+
+  localStorage.removeItem("adminToken");
+  localStorage.removeItem("userToken");
+  localStorage.removeItem("token");
+  sessionStorage.removeItem("adminToken");
+  sessionStorage.removeItem("userToken");
+  sessionStorage.removeItem("token");
+
+  document.cookie.split(";").forEach((c) => {
+    document.cookie = c
+      .replace(/^ +/, "")
+      .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+  });
+};
+
 // ==================== TOKEN VERIFICATION ====================
 const verifyToken = async (token) => {
+  logger.info("Verifying token...");
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/admin/verify`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/users/admin/verify-token`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+      }
+    );
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    return await response.json();
+    const result = await response.json();
+    logger.success("Token verified successfully", result);
+    return result;
   } catch (error) {
-    console.error("Token verification failed:", error);
+    logger.error("Token verification failed:", error);
     throw error;
   }
 };
+
+// ==================== IMAGE URL HELPER ====================
+const getImageUrl = (imagePath) => {
+  if (!imagePath) return null;
+
+  if (!isNaN(imagePath)) {
+    return `${API_BASE_URL}/api/v1/media/${imagePath}`;
+  }
+
+  if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) return imagePath;
+  if (imagePath.startsWith("data:")) return imagePath;
+
+  const cleanPath = imagePath.startsWith("/") ? imagePath.slice(1) : imagePath;
+
+  if (cleanPath.startsWith("uploads/projects/")) return `${API_BASE_URL}/${cleanPath}`;
+  if (cleanPath.startsWith("uploads/")) return `${API_BASE_URL}/${cleanPath}`;
+  if (cleanPath.startsWith("projects/")) return `${API_BASE_URL}/uploads/${cleanPath}`;
+  return `${API_BASE_URL}/uploads/projects/${cleanPath}`;
+};
+
+// ==================== FIELD DEFINITIONS ====================
+const PROJECT_TABLE_FIELDS = [
+  "ProjectName", "project_slug", "listing_type", "property_type",
+  "price", "price_end", "askprice", "currency_id",
+  "bedroom", "area", "area_end", "area_size",
+  "state_id", "city_id", "community_id", "sub_community_id",
+  "LocationName", "BuildingName", "StreetName", "CityName", "StateName", "PinCode", "LandMark", "country",
+  "Description", "Specifications",
+  "floors", "rooms", "total_building", "kitchen_type",
+  "completion_date", "vacating_date", "StartDate", "EndDate",
+  "status", "featured_project", "verified", "occupancy", "qc", "exclusive_status",
+  "developer_id", "agent_id",
+  "Lift", "Club", "RainWaterHaresting", "PowerBackup", "GasConnection",
+  "SwimmingPool", "Parking", "Security", "InternetConnection", "Gym",
+  "ServantQuarters", "Balcony", "PlayArea", "CCTV", "ReservedPark",
+  "Intercom", "Lawn", "Terrace", "Garden", "EarthquakeConstruction",
+  "amenities", "Vaastu", "video_url", "whatsapp_url", "Url",
+  "user_id", "ProjectId", "ProjectNumber",
+  "keyword", "seo_title", "meta_description", "canonical_tags",
+  "dld_permit",
+];
+
+const SPECS_TABLE_FIELDS = [
+  "ReraNumber", "DeveloperName", "CompanyName",
+  "MaxArea", "MinArea", "MaxPrice", "MinPrice",
+  "Latitude", "Longitude",
+];
 
 // ==================== INITIAL FORM DATA ====================
 const INITIAL_FORM_DATA = {
@@ -97,26 +249,10 @@ const INITIAL_FORM_DATA = {
   exclusive_status: "exclusive",
   developer_id: "",
   agent_id: "",
-  Lift: 0,
-  Club: 0,
-  RainWaterHaresting: 0,
-  PowerBackup: 0,
-  GasConnection: 0,
-  SwimmingPool: 0,
-  Parking: 0,
-  Security: 0,
-  InternetConnection: 0,
-  Gym: 0,
-  ServantQuarters: 0,
-  Balcony: 0,
-  PlayArea: 0,
-  CCTV: 0,
-  ReservedPark: 0,
-  Intercom: 0,
-  Lawn: 0,
-  Terrace: 0,
-  Garden: 0,
-  EarthquakeConstruction: 0,
+  Lift: 0, Club: 0, RainWaterHaresting: 0, PowerBackup: 0, GasConnection: 0,
+  SwimmingPool: 0, Parking: 0, Security: 0, InternetConnection: 0, Gym: 0,
+  ServantQuarters: 0, Balcony: 0, PlayArea: 0, CCTV: 0, ReservedPark: 0,
+  Intercom: 0, Lawn: 0, Terrace: 0, Garden: 0, EarthquakeConstruction: 0,
   amenities: "",
   Vaastu: "",
   video_url: "",
@@ -151,83 +287,96 @@ const REQUIRED_FIELDS = [
   { field: "Description", label: "Description" },
 ];
 
-const labelCls = "text-[12px] text-gray-700";
-const labelRequiredCls = "text-[12px] text-gray-700 after:content-['*'] after:text-red-500 after:ml-0.5";
-const fieldCls = "h-8 w-full border border-gray-300 bg-white px-2 text-[12px] outline-none focus:border-gray-500";
-const fieldErrorCls = "h-8 w-full border border-red-400 bg-red-50 px-2 text-[12px] outline-none focus:border-red-500";
-const selectCls = "h-8 w-full border border-gray-300 bg-white px-2 text-[12px] outline-none focus:border-gray-500";
-const selectErrorCls = "h-8 w-full border border-red-400 bg-red-50 px-2 text-[12px] outline-none focus:border-red-500";
-const boxCls = "border border-gray-300 bg-white";
-const boxHeaderCls = "px-3 py-2 border-b border-gray-300 text-[13px] font-semibold text-gray-800";
+// ==================== COMMON STYLES ====================
+const labelCls = "text-sm text-gray-700";
+const labelRequiredCls = "text-sm text-gray-700 after:content-['*'] after:text-red-500 after:ml-0.5";
+const fieldCls = "h-9 w-full border border-gray-300 bg-white px-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded";
+const fieldErrorCls = "h-9 w-full border border-red-400 bg-red-50 px-2 text-sm outline-none focus:ring-1 focus:ring-red-500 rounded";
+const selectCls = "h-9 w-full border border-gray-300 bg-white px-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded";
+const boxCls = "border border-gray-300 bg-white rounded";
+const boxHeaderCls = "px-3 py-2 border-b border-gray-300 text-sm font-semibold text-gray-800";
 const boxBodyCls = "p-3";
+
+// ==================== TOAST HELPER FUNCTIONS ====================
+const showSuccess = (message) => {
+  logger.success("Toast Success:", message);
+  toast.success(message, {
+    duration: 3000,
+    position: "top-right",
+    style: { background: "#10B981", color: "#fff", fontWeight: "500" },
+  });
+};
+
+const showError = (message) => {
+  logger.error("Toast Error:", message);
+  toast.error(message, {
+    duration: 4000,
+    position: "top-right",
+    style: { background: "#EF4444", color: "#fff", fontWeight: "500" },
+  });
+};
+
+const showLoadingToast = (message) => {
+  logger.info("Toast Loading:", message);
+  return toast.loading(message, { position: "top-right" });
+};
+
+const showWarning = (message) => {
+  logger.warn("Toast Warning:", message);
+  toast(message, {
+    duration: 3000,
+    position: "top-right",
+    icon: "⚠️",
+    style: { background: "#FFC107", color: "#000", fontWeight: "500" },
+  });
+};
 
 // ==================== SEO CHECKLIST COMPONENT ====================
 function SeoChecklist({ formData }) {
   const checks = [
     {
       label: "Project name is descriptive (min 10 chars)",
-      passed: formData.ProjectName && formData.ProjectName.length >= 10
+      passed: formData.ProjectName && formData.ProjectName.length >= 10,
     },
     {
       label: "Description has at least 50 words",
-      passed: formData.Description && formData.Description.split(/\s+/).filter(Boolean).length >= 50
+      passed:
+        formData.Description &&
+        formData.Description.replace(/<[^>]*>/g, "").split(/\s+/).filter(Boolean).length >= 50,
     },
-    {
-      label: "Price is specified",
-      passed: !!formData.price
-    },
-    {
-      label: "Property type is selected",
-      passed: !!formData.property_type
-    },
-    {
-      label: "Location is specified",
-      passed: !!(formData.LocationName || formData.CityName)
-    },
-    {
-      label: "Area is specified",
-      passed: !!formData.area
-    },
-    {
-      label: "Developer name added",
-      passed: !!formData.DeveloperName
-    }
+    { label: "Price is specified", passed: !!formData.price },
+    { label: "Property type is selected", passed: !!formData.property_type },
+    { label: "Location is specified", passed: !!(formData.LocationName || formData.CityName) },
+    { label: "Area is specified", passed: !!formData.area },
+    { label: "Developer name added", passed: !!formData.DeveloperName },
   ];
 
-  const passedCount = checks.filter(c => c.passed).length;
+  const passedCount = checks.filter((c) => c.passed).length;
   const percentage = Math.round((passedCount / checks.length) * 100);
 
   return (
     <div className="mt-3 space-y-2">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[12px] font-medium text-gray-700">SEO Score</span>
-        <span className={`text-[12px] font-bold ${
-          percentage >= 80 ? 'text-green-600' :
-          percentage >= 60 ? 'text-yellow-600' : 'text-red-600'
-        }`}>
+        <span className="text-sm font-medium text-gray-700">SEO Score</span>
+        <span className={`text-sm font-bold ${percentage >= 80 ? "text-green-600" : percentage >= 60 ? "text-amber-600" : "text-red-600"}`}>
           {percentage}%
         </span>
       </div>
       <div className="w-full bg-gray-200 h-2 rounded">
-        <div 
-          className={`h-2 rounded transition-all ${
-            percentage >= 80 ? 'bg-green-500' :
-            percentage >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-          }`}
+        <div
+          className={`h-2 rounded transition-all ${percentage >= 80 ? "bg-green-500" : percentage >= 60 ? "bg-amber-500" : "bg-red-500"}`}
           style={{ width: `${percentage}%` }}
         />
       </div>
       <div className="mt-3">
         {checks.map((check, index) => (
-          <div key={index} className="flex items-start gap-2 text-[11px] text-gray-700 py-1">
+          <div key={index} className="flex items-start gap-2 text-xs text-gray-700 py-1">
             {check.passed ? (
               <CheckCircle className="w-3.5 h-3.5 text-green-600 mt-0.5 flex-shrink-0" />
             ) : (
               <XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 flex-shrink-0" />
             )}
-            <div className={check.passed ? "text-green-700" : "text-red-700"}>
-              {check.label}
-            </div>
+            <div className={check.passed ? "text-green-700" : "text-red-700"}>{check.label}</div>
           </div>
         ))}
       </div>
@@ -242,77 +391,24 @@ function ValidationIndicator({ formData }) {
   const percentage = Math.round((completedCount / REQUIRED_FIELDS.length) * 100);
 
   return (
-    <div className="bg-white border border-gray-300 p-3 mb-3">
+    <div className="bg-white border border-gray-300 rounded p-3 mb-3">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[12px] font-medium text-gray-700">Form Completion</span>
-        <span className={`text-[12px] font-bold ${
-          percentage === 100 ? 'text-green-600' :
-          percentage >= 70 ? 'text-yellow-600' : 'text-red-600'
-        }`}>
+        <span className="text-sm font-medium text-gray-700">Form Completion</span>
+        <span className={`text-sm font-bold ${percentage === 100 ? "text-green-600" : percentage >= 70 ? "text-amber-600" : "text-red-600"}`}>
           {completedCount}/{REQUIRED_FIELDS.length} fields
         </span>
       </div>
       <div className="w-full bg-gray-200 h-2 rounded mb-2">
-        <div 
-          className={`h-2 rounded transition-all ${
-            percentage === 100 ? 'bg-green-500' :
-            percentage >= 70 ? 'bg-yellow-500' : 'bg-red-500'
-          }`}
+        <div
+          className={`h-2 rounded transition-all ${percentage === 100 ? "bg-green-500" : percentage >= 70 ? "bg-amber-500" : "bg-red-500"}`}
           style={{ width: `${percentage}%` }}
         />
       </div>
       {missingFields.length > 0 && (
-        <div className="text-[11px] text-red-600">
-          Missing: {missingFields.map(f => f.label).join(", ")}
+        <div className="text-xs text-red-600">
+          Missing: {missingFields.map((f) => f.label).join(", ")}
         </div>
       )}
-    </div>
-  );
-}
-
-// ==================== EXISTING IMAGE COMPONENT ====================
-function ExistingImageCard({ image, onDelete, onSetFeatured, isFeatured, deleting }) {
-  const imageUrl = image.Url || image.url || image;
-  const imageId = image.id || image.image_id;
-  
-  return (
-    <div className="relative group">
-      <div className={`relative overflow-hidden border ${isFeatured ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-300'} bg-white`}>
-        <img 
-          src={imageUrl.startsWith('http') ? imageUrl : `${API_BASE_URL}${imageUrl}`} 
-          alt="Project" 
-          className="w-full h-28 object-cover"
-          onError={(e) => {
-            e.target.src = '/placeholder-image.jpg';
-          }}
-        />
-        {isFeatured && (
-          <div className="absolute top-2 left-2 px-2 py-1 bg-blue-600 text-white text-[10px]">
-            Featured
-          </div>
-        )}
-        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-2">
-          {!isFeatured && onSetFeatured && (
-            <button
-              type="button"
-              onClick={() => onSetFeatured(imageId)}
-              className="w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center rounded"
-              title="Set as featured"
-            >
-              <Building2 className="w-4 h-4" />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => onDelete(imageId)}
-            disabled={deleting}
-            className="w-8 h-8 bg-red-600 hover:bg-red-700 text-white flex items-center justify-center rounded disabled:opacity-50"
-            title="Delete image"
-          >
-            {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -341,48 +437,143 @@ const AMENITY_FIELDS = [
   { key: "EarthquakeConstruction", label: "Earthquake Resistant" },
 ];
 
+// ==================== EXISTING IMAGE COMPONENT ====================
+function ExistingImage({ src, onRemove, label, isMain = false }) {
+  const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  const imageUrl = getImageUrl(src);
+
+  if (!imageUrl || imageError) {
+    return (
+      <div className={`relative overflow-hidden border ${isMain ? "border-blue-500 ring-2 ring-blue-300" : "border-gray-300"} bg-gray-100 rounded`}>
+        <div className="w-full h-28 flex items-center justify-center">
+          <ImageIcon className="w-8 h-8 text-gray-400" />
+        </div>
+        {label && (
+          <div className={`absolute top-2 left-2 px-2 py-1 ${isMain ? "bg-blue-600" : "bg-gray-600"} text-white text-xs rounded-full`}>
+            {label}
+          </div>
+        )}
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="absolute top-2 right-2 w-6 h-6 bg-red-600 hover:bg-red-700 text-white flex items-center justify-center rounded-full"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`relative overflow-hidden border ${isMain ? "border-blue-500 ring-2 ring-blue-300" : "border-gray-300"} bg-white rounded`}>
+      {!imageLoaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+          <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+        </div>
+      )}
+      <img
+        src={imageUrl}
+        alt={label || "Image"}
+        className={`w-full h-28 object-cover transition-opacity duration-200 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
+        onLoad={() => setImageLoaded(true)}
+        onError={() => setImageError(true)}
+      />
+      {label && (
+        <div className={`absolute top-2 left-2 px-2 py-1 ${isMain ? "bg-blue-600" : "bg-gray-600"} text-white text-xs rounded-full`}>
+          {label}
+        </div>
+      )}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="absolute top-2 right-2 w-6 h-6 bg-red-600 hover:bg-red-700 text-white flex items-center justify-center rounded-full"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ==================== MAIN COMPONENT ====================
 export default function EditProjectPage() {
   const params = useParams();
-  const router = useRouter();
   const projectId = params?.id;
+
+  // Component mount logging
+  useEffect(() => {
+    logger.group("EditProjectPage Component");
+    logger.info("Component mounted");
+    logger.debug("Project ID:", projectId);
+    logger.debug("API_BASE_URL:", API_BASE_URL);
+    logger.groupEnd();
+
+    return () => {
+      logger.info("EditProjectPage Component unmounted");
+    };
+  }, [projectId]);
 
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [admin, setAdmin] = useState(null);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+
+  // Page state
+  const [pageLoading, setPageLoading] = useState(true);
+  const [projectNotFound, setProjectNotFound] = useState(false);
+  const [originalData, setOriginalData] = useState(null);
 
   // Form state
+  const [activeTab, setActiveTab] = useState("details");
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
-  const [originalData, setOriginalData] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [seoScore, setSeoScore] = useState(0);
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Images state
-  const [existingImages, setExistingImages] = useState([]);
-  const [existingFeaturedImage, setExistingFeaturedImage] = useState(null);
+  // Images
+  const [existingMainImage, setExistingMainImage] = useState(null);
+  const [existingGallery, setExistingGallery] = useState([]);
   const [selectedMainImage, setSelectedMainImage] = useState(null);
   const [selectedImages, setSelectedImages] = useState([]);
-  const [deletingImageId, setDeletingImageId] = useState(null);
+  const [imagesToRemove, setImagesToRemove] = useState([]);
+  const [removeMainImage, setRemoveMainImage] = useState(false);
 
   // ==================== AUTHENTICATION ====================
+  const handleAuthFailure = useCallback(() => {
+    logger.error("Authentication failed - redirecting to login");
+    logoutAll();
+    setAdmin(null);
+    setIsAuthenticated(false);
+    setAuthLoading(false);
+    window.location.href = "/admin/login";
+  }, []);
+
   const checkAuth = useCallback(async () => {
+    logger.group("Authentication Check");
     try {
       const sessionType = getCurrentSessionType();
+      logger.debug("Session type:", sessionType);
 
       if (sessionType !== "admin") {
+        logger.warn("Not an admin session");
         toast.error("Please login as admin to access this page");
         handleAuthFailure();
         return;
       }
 
       const token = getAdminToken();
+      logger.debug("Token exists:", !!token);
 
       if (!token || !isAdminTokenValid()) {
+        logger.error("Token invalid or expired");
         toast.error("Session expired. Please login again.");
         handleAuthFailure();
         return;
@@ -391,54 +582,80 @@ export default function EditProjectPage() {
       try {
         await verifyToken(token);
       } catch (verifyError) {
-        console.error("Token verification error:", verifyError);
+        logger.error("Token verification error:", verifyError);
       }
 
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));
+        logger.debug("Token payload:", payload);
 
         if (payload.userType !== "admin") {
+          logger.error("Invalid user type in token");
           toast.error("Invalid session type. Please login as admin.");
           handleAuthFailure();
           return;
         }
 
-        setAdmin({
+        const adminData = {
           id: payload.id,
           name: payload.name,
           email: payload.email,
           role: payload.role || "admin",
           userType: payload.userType,
-        });
+        };
+
+        logger.success("Admin authenticated:", adminData);
+        setAdmin(adminData);
         setIsAuthenticated(true);
         setAuthLoading(false);
       } catch (e) {
-        console.error("Token decode error:", e);
+        logger.error("Token decode error:", e);
         handleAuthFailure();
       }
     } catch (error) {
-      console.error("Auth check error:", error);
+      logger.error("Auth check error:", error);
       handleAuthFailure();
     }
-  }, []);
+    logger.groupEnd();
+  }, [handleAuthFailure]);
 
-  const handleAuthFailure = useCallback(() => {
-    logoutAll();
-    setAdmin(null);
-    setIsAuthenticated(false);
-    setAuthLoading(false);
-    window.location.href = "/admin/login";
+  const handleLogout = useCallback(async () => {
+    logger.info("Logout initiated");
+    setLogoutLoading(true);
+    const logoutToastId = showLoadingToast("Logging out...");
+
+    try {
+      const token = getAdminToken();
+      await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch((err) => logger.warn("Logout API error (ignored):", err));
+    } catch (err) {
+      logger.error("Logout error:", err);
+      showError("Logout failed. Please try again.");
+    } finally {
+      toast.dismiss(logoutToastId);
+      logoutAll();
+      showSuccess("Logged out successfully");
+      window.location.href = "/admin/login";
+      setLogoutLoading(false);
+    }
   }, []);
 
   // ==================== FETCH PROJECT DATA ====================
-  const fetchProjectData = useCallback(async () => {
+  const fetchProject = useCallback(async () => {
     if (!projectId) {
-      toast.error("Project ID not found");
+      logger.error("No project ID provided");
+      setProjectNotFound(true);
+      setPageLoading(false);
       return;
     }
 
+    logger.group("Fetching Project");
+    logger.info("Project ID:", projectId);
+
     try {
-      setLoading(true);
+      setPageLoading(true);
       const token = getAdminToken();
 
       const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}`, {
@@ -448,162 +665,82 @@ export default function EditProjectPage() {
         },
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch project");
-      }
-
       const result = await response.json();
-      
-      if (result.success && result.data) {
-        const project = result.data;
-        
-        // Map API response to form data
-        const mappedData = {
-          ProjectName: project.ProjectName || "",
-          project_slug: project.project_slug || "",
-          listing_type: project.listing_type || "sale",
-          property_type: project.property_type || "Apartment",
-          price: project.price?.toString() || "",
-          price_end: project.price_end?.toString() || "",
-          askprice: project.askprice?.toString() || "0",
-          currency_id: project.currency_id || 1,
-          bedroom: project.bedroom?.toString() || "",
-          area: project.area?.toString() || "",
-          area_end: project.area_end?.toString() || "",
-          area_size: project.area_size || "Sq.Ft.",
-          state_id: project.state_id?.toString() || "",
-          city_id: project.city_id?.toString() || "",
-          community_id: project.community_id?.toString() || "",
-          sub_community_id: project.sub_community_id?.toString() || "",
-          LocationName: project.LocationName || "",
-          BuildingName: project.BuildingName || "",
-          StreetName: project.StreetName || "",
-          CityName: project.CityName || "",
-          StateName: project.StateName || "",
-          PinCode: project.PinCode || "",
-          LandMark: project.LandMark || "",
-          country: project.country || "UAE",
-          Description: project.Description || "",
-          Specifications: project.Specifications || "",
-          floors: project.floors?.toString() || "",
-          rooms: project.rooms?.toString() || "",
-          total_building: project.total_building?.toString() || "",
-          kitchen_type: project.kitchen_type || "",
-          completion_date: project.completion_date ? project.completion_date.split('T')[0] : "",
-          vacating_date: project.vacating_date ? project.vacating_date.split('T')[0] : "",
-          StartDate: project.StartDate ? project.StartDate.split('T')[0] : "",
-          EndDate: project.EndDate ? project.EndDate.split('T')[0] : "",
-          status: project.status ?? 1,
-          featured_project: project.featured_project?.toString() || "0",
-          verified: project.verified || 0,
-          occupancy: project.occupancy || "",
-          qc: project.qc || "",
-          exclusive_status: project.exclusive_status || "exclusive",
-          developer_id: project.developer_id?.toString() || "",
-          agent_id: project.agent_id?.toString() || "",
-          
-          // Amenities (boolean to number)
-          Lift: project.Lift || 0,
-          Club: project.Club || 0,
-          RainWaterHaresting: project.RainWaterHaresting || 0,
-          PowerBackup: project.PowerBackup || 0,
-          GasConnection: project.GasConnection || 0,
-          SwimmingPool: project.SwimmingPool || 0,
-          Parking: project.Parking || 0,
-          Security: project.Security || 0,
-          InternetConnection: project.InternetConnection || 0,
-          Gym: project.Gym || 0,
-          ServantQuarters: project.ServantQuarters || 0,
-          Balcony: project.Balcony || 0,
-          PlayArea: project.PlayArea || 0,
-          CCTV: project.CCTV || 0,
-          ReservedPark: project.ReservedPark || 0,
-          Intercom: project.Intercom || 0,
-          Lawn: project.Lawn || 0,
-          Terrace: project.Terrace || 0,
-          Garden: project.Garden || 0,
-          EarthquakeConstruction: project.EarthquakeConstruction || 0,
-          
-          amenities: project.amenities || "",
-          Vaastu: project.Vaastu || "",
-          video_url: project.video_url || "",
-          whatsapp_url: project.whatsapp_url || "",
-          Url: project.Url || "",
-          user_id: project.user_id || 1,
-          ProjectId: project.ProjectId || "",
-          ProjectNumber: project.ProjectNumber || "",
-          keyword: project.keyword || "",
-          seo_title: project.seo_title || "",
-          meta_description: project.meta_description || "",
-          canonical_tags: project.canonical_tags || "",
-          dld_permit: project.dld_permit || "",
-          
-          // Specs data
-          ReraNumber: project.specs?.ReraNumber || project.ReraNumber || "",
-          DeveloperName: project.specs?.DeveloperName || project.DeveloperName || "",
-          CompanyName: project.specs?.CompanyName || project.CompanyName || "",
-          MaxArea: project.specs?.MaxArea?.toString() || "",
-          MinArea: project.specs?.MinArea?.toString() || "",
-          MaxPrice: project.specs?.MaxPrice?.toString() || "",
-          MinPrice: project.specs?.MinPrice?.toString() || "",
-          Latitude: project.specs?.Latitude || "",
-          Longitude: project.specs?.Longitude || "",
-        };
+      logger.debug("API Response:", result);
 
-        setFormData(mappedData);
-        setOriginalData(mappedData);
-
-        // Handle images
-        if (project.featured_image) {
-          setExistingFeaturedImage(project.featured_image);
-        }
-        
-        if (project.gallery && Array.isArray(project.gallery)) {
-          setExistingImages(project.gallery);
-        }
-
-        toast.success("Project data loaded successfully");
-      } else {
-        throw new Error(result.message || "Failed to load project");
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Project not found");
       }
-    } catch (error) {
-      console.error("Fetch error:", error);
-      toast.error(error.message || "Failed to load project data");
+
+      const project = result.data;
+      logger.success("Project loaded:", project.ProjectName);
+
+      // Map project data to form data
+      const mappedData = { ...INITIAL_FORM_DATA };
+
+      // Map all fields from project
+      Object.keys(mappedData).forEach((key) => {
+        if (project[key] !== undefined && project[key] !== null) {
+          mappedData[key] = project[key];
+        }
+      });
+
+      // Handle specific field mappings
+      mappedData.status = project.status === 1 || project.status === "1" ? 1 : 0;
+      mappedData.featured_project = project.featured_project === "1" || project.featured_project === 1 ? "1" : "0";
+      mappedData.verified = project.verified === 1 || project.verified === "1" ? 1 : 0;
+
+      // Handle amenity boolean fields
+      AMENITY_FIELDS.forEach(({ key }) => {
+        mappedData[key] = project[key] === 1 || project[key] === "1" ? 1 : 0;
+      });
+
+      // Handle date fields
+      if (project.completion_date) {
+        mappedData.completion_date = project.completion_date.split("T")[0];
+      }
+
+      logger.debug("Mapped form data:", mappedData);
+
+      setFormData(mappedData);
+      setOriginalData(mappedData);
+
+      // Set existing images
+      if (project.featured_image) {
+        setExistingMainImage(project.featured_image);
+        logger.debug("Existing main image:", project.featured_image);
+      }
+
+      if (project.gallery && Array.isArray(project.gallery)) {
+        setExistingGallery(project.gallery);
+        logger.debug("Existing gallery images:", project.gallery.length);
+      } else if (project.images && Array.isArray(project.images)) {
+        // Handle different API response formats
+        setExistingGallery(project.images.map((img, i) => ({
+          id: i,
+          Url: typeof img === "string" ? img : img.Url,
+        })));
+      }
+
+      setProjectNotFound(false);
+    } catch (err) {
+      logger.error("Fetch project error:", err);
+      showError(err.message || "Failed to load project");
+      setProjectNotFound(true);
     } finally {
-      setLoading(false);
+      setPageLoading(false);
+      logger.groupEnd();
     }
   }, [projectId]);
 
-  // ==================== EFFECTS ====================
+  // Calculate SEO score
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  useEffect(() => {
-    if (isAuthenticated && projectId) {
-      fetchProjectData();
-    }
-  }, [isAuthenticated, projectId, fetchProjectData]);
-
-  useEffect(() => {
-    calculateSeoScore();
-  }, [formData]);
-
-  useEffect(() => {
-    if (originalData) {
-      const changed = JSON.stringify(formData) !== JSON.stringify(originalData) ||
-                      selectedMainImage !== null ||
-                      selectedImages.length > 0;
-      setHasChanges(changed);
-    }
-  }, [formData, originalData, selectedMainImage, selectedImages]);
-
-  const calculateSeoScore = () => {
     let score = 0;
     const totalChecks = 7;
+    const plainDescription = formData.Description?.replace(/<[^>]*>/g, "") || "";
 
     if (formData.ProjectName && formData.ProjectName.length >= 10) score++;
-    if (formData.Description && formData.Description.split(/\s+/).filter(Boolean).length >= 50) score++;
+    if (plainDescription.split(/\s+/).filter(Boolean).length >= 50) score++;
     if (formData.price) score++;
     if (formData.property_type) score++;
     if (formData.LocationName || formData.CityName) score++;
@@ -611,106 +748,139 @@ export default function EditProjectPage() {
     if (formData.DeveloperName) score++;
 
     setSeoScore(Math.round((score / totalChecks) * 100));
-  };
+  }, [formData]);
+
+  // Check for changes
+  useEffect(() => {
+    if (originalData) {
+      const changed = JSON.stringify(formData) !== JSON.stringify(originalData) ||
+        selectedMainImage !== null ||
+        selectedImages.length > 0 ||
+        imagesToRemove.length > 0 ||
+        removeMainImage;
+      setHasChanges(changed);
+    }
+  }, [formData, originalData, selectedMainImage, selectedImages, imagesToRemove, removeMainImage]);
+
+  // Auth and data loading
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  useEffect(() => {
+    if (isAuthenticated && projectId) {
+      fetchProject();
+    }
+  }, [isAuthenticated, projectId, fetchProject]);
 
   // ==================== FORM HANDLERS ====================
-  const handleChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    
+  const handleChange = useCallback((field, value) => {
+    logger.debug(`Field changed: ${field}`, value);
+
+    setFormData((prev) => {
+      const updated = { ...prev, [field]: value };
+
+      if (field === "ProjectName") {
+        const slug = (value || "")
+          .toLowerCase()
+          .replace(/[^\w\s-]/g, "")
+          .replace(/\s+/g, "-")
+          .replace(/--+/g, "-");
+        updated.project_slug = slug;
+      }
+
+      return updated;
+    });
+
     if (value && errors[field]) {
-      setErrors(prev => {
+      setErrors((prev) => {
         const newErrors = { ...prev };
         delete newErrors[field];
         return newErrors;
       });
     }
-  };
+  }, [errors]);
 
-  const handleBlur = (field) => {
-    setTouched(prev => ({ ...prev, [field]: true }));
-    
-    if (REQUIRED_FIELDS.find(f => f.field === field) && !formData[field]) {
-      setErrors(prev => ({ ...prev, [field]: "This field is required" }));
+  const handleDescriptionChange = useCallback((content) => {
+    handleChange("Description", content);
+  }, [handleChange]);
+
+  const handleBlur = useCallback((field) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+
+    if (REQUIRED_FIELDS.find((f) => f.field === field) && !formData[field]) {
+      setErrors((prev) => ({ ...prev, [field]: "This field is required" }));
     }
-  };
+  }, [formData]);
 
-  const handleImageUpload = (e, type) => {
+  const handleImageUpload = useCallback((e, type) => {
     const files = Array.from(e.target.files || []);
-    
-    if (type === "main" && files[0]) {
-      const f = files[0];
-      if (f.size > 5 * 1024 * 1024) {
-        toast.error("Image size should be less than 5MB");
-        return;
-      }
-      setSelectedMainImage(f);
-      toast.success("New featured image selected!");
-    }
-    
-    if (type === "gallery") {
-      const valid = files.filter((f) => f.size <= 5 * 1024 * 1024);
-      const total = existingImages.length + selectedImages.length + valid.length;
-      if (total > 20) {
-        toast.error("Maximum 20 images allowed");
-        return;
-      }
-      setSelectedImages((prev) => [...prev, ...valid]);
-      toast.success(`${valid.length} images added to gallery!`);
-    }
-    
-    e.target.value = "";
-  };
+    logger.info(`Image upload - Type: ${type}, Files count: ${files.length}`);
 
-  const removeNewImage = (index, type) => {
+    const validFiles = files.filter((f) => {
+      if (!f.type.startsWith("image/")) {
+        showError(`File ${f.name} is not an image.`);
+        return false;
+      }
+      if (f.size > 5 * 1024 * 1024) {
+        showError(`Image ${f.name} size should be less than 5MB.`);
+        return false;
+      }
+      return true;
+    });
+
+    if (type === "main" && validFiles[0]) {
+      setSelectedMainImage(validFiles[0]);
+      setRemoveMainImage(false);
+      showSuccess("New featured image selected!");
+    }
+
+    if (type === "gallery") {
+      const total = existingGallery.length - imagesToRemove.length + selectedImages.length + validFiles.length;
+      if (total > 20) {
+        showError("Maximum 20 images allowed in gallery.");
+        return;
+      }
+      setSelectedImages((prev) => [...prev, ...validFiles]);
+      showSuccess(`${validFiles.length} images added to gallery!`);
+    }
+
+    e.target.value = "";
+  }, [existingGallery.length, imagesToRemove.length, selectedImages.length]);
+
+  const removeNewImage = useCallback((index, type) => {
     if (type === "main") {
       setSelectedMainImage(null);
-      toast.success("New featured image removed");
+      showSuccess("New featured image removed");
     } else {
       setSelectedImages((prev) => prev.filter((_, i) => i !== index));
-      toast.success("Image removed from selection");
+      showSuccess("Image removed from selection");
     }
-  };
+  }, []);
 
-  // ==================== DELETE EXISTING IMAGE ====================
-  const handleDeleteExistingImage = async (imageId) => {
-    if (!window.confirm("Are you sure you want to delete this image?")) {
-      return;
+  const removeExistingImage = useCallback((imageId, type) => {
+    if (type === "main") {
+      setRemoveMainImage(true);
+      setExistingMainImage(null);
+      showSuccess("Featured image marked for removal");
+    } else {
+      setImagesToRemove((prev) => [...prev, imageId]);
+      setExistingGallery((prev) => prev.filter((img) => img.id !== imageId));
+      showSuccess("Gallery image marked for removal");
     }
-
-    try {
-      setDeletingImageId(imageId);
-      const token = getAdminToken();
-
-      const response = await fetch(`${API_BASE_URL}/api/v1/projects/gallery/${imageId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        setExistingImages(prev => prev.filter(img => (img.id || img.image_id) !== imageId));
-        toast.success("Image deleted successfully");
-      } else {
-        throw new Error(result.message || "Failed to delete image");
-      }
-    } catch (error) {
-      console.error("Delete image error:", error);
-      toast.error(error.message || "Failed to delete image");
-    } finally {
-      setDeletingImageId(null);
-    }
-  };
+  }, []);
 
   // ==================== VALIDATION ====================
-  const validateForm = () => {
+  const validateForm = useCallback(() => {
+    logger.group("Form Validation");
     const newErrors = {};
-    
+    const plainDescription = formData.Description?.replace(/<[^>]*>/g, "") || "";
+
     REQUIRED_FIELDS.forEach(({ field, label }) => {
-      if (!formData[field]) {
+      const value = field === "Description" ? plainDescription : formData[field];
+      if (!value) {
         newErrors[field] = `${label} is required`;
+        logger.warn(`Missing required field: ${field}`);
       }
     });
 
@@ -722,159 +892,216 @@ export default function EditProjectPage() {
       newErrors.area = "Area must be a valid number";
     }
 
-    if (formData.Description && formData.Description.split(/\s+/).filter(Boolean).length < 20) {
-      newErrors.Description = "Description should have at least 20 words";
+    const descriptionWordCount = plainDescription.split(/\s+/).filter(Boolean).length;
+    if (descriptionWordCount < 50) {
+      newErrors.Description = `Description should have at least 50 words (${descriptionWordCount}/50)`;
     }
 
     setErrors(newErrors);
-    
+
     if (Object.keys(newErrors).length > 0) {
-      const missingLabels = Object.keys(newErrors).map(key => {
-        const found = REQUIRED_FIELDS.find(f => f.field === key);
+      logger.error("Validation failed:", newErrors);
+      const missingLabels = Object.keys(newErrors).map((key) => {
+        const found = REQUIRED_FIELDS.find((f) => f.field === key);
         return found ? found.label : key;
       });
-      toast.error(`Please fill required fields: ${missingLabels.slice(0, 3).join(", ")}${missingLabels.length > 3 ? '...' : ''}`);
+      showError(`Please fill required fields: ${missingLabels.slice(0, 3).join(", ")}${missingLabels.length > 3 ? "..." : ""}`);
+      logger.groupEnd();
       return false;
     }
-    
-    return true;
-  };
 
-  const generateSlug = () => {
+    logger.success("Validation passed");
+    logger.groupEnd();
+    return true;
+  }, [formData]);
+
+  const generateSlug = useCallback(() => {
     if (!formData.ProjectName) {
-      toast.error("Please enter project name first");
+      showError("Please enter project name first");
       return;
     }
-    
-    const slug = formData.ProjectName
-      .toLowerCase()
+
+    const slug = formData.ProjectName.toLowerCase()
       .replace(/[^\w\s-]/g, "")
       .replace(/\s+/g, "-")
-      .replace(/--+/g, "-")
-      + "-" + Date.now();
-    
-    setFormData(prev => ({ ...prev, project_slug: slug }));
-    toast.success("Project slug generated!");
-  };
+      .replace(/--+/g, "-");
+
+    setFormData((prev) => ({ ...prev, project_slug: slug }));
+    showSuccess("Project slug generated!");
+  }, [formData.ProjectName]);
 
   // ==================== FORM SUBMISSION ====================
-  const handleSubmit = async () => {
-    if (!validateForm()) return;
+  const handleSubmit = useCallback(async () => {
+    logger.group("Form Submission (Update)");
+    logger.info("Update initiated for project:", projectId);
+
+    if (!validateForm()) {
+      logger.groupEnd();
+      return;
+    }
+
+    setSaving(true);
+    const saveToastId = showLoadingToast("Updating project...");
 
     try {
-      setSaving(true);
-
       const fd = new FormData();
-      
-      // Add all form fields
-      Object.keys(formData).forEach(key => {
+
+      // Separate project fields from specs fields
+      const projectData = {};
+      const specsData = {};
+
+      Object.keys(formData).forEach((key) => {
         const value = formData[key];
         if (value !== null && value !== undefined && value !== "") {
-          fd.append(key, value);
+          if (SPECS_TABLE_FIELDS.includes(key)) {
+            specsData[key] = value;
+          } else if (PROJECT_TABLE_FIELDS.includes(key)) {
+            projectData[key] = value;
+          }
         }
       });
 
-      // Add new images
-      if (selectedMainImage) {
-        fd.append("featured_image", selectedMainImage);
-      }
-      
-      selectedImages.forEach((img) => {
-        fd.append("gallery_images", img);
+      logger.debug("Project Data:", Object.keys(projectData));
+      logger.debug("Specs Data:", specsData);
+
+      // Append project fields to FormData
+      Object.keys(projectData).forEach((key) => {
+        fd.append(key, projectData[key]);
       });
 
-      // Prepare specs data
-      const specs = {
-        ReraNumber: formData.ReraNumber,
-        DeveloperName: formData.DeveloperName,
-        CompanyName: formData.CompanyName,
-        MaxArea: formData.MaxArea,
-        MinArea: formData.MinArea,
-        MaxPrice: formData.MaxPrice,
-        MinPrice: formData.MinPrice,
-        Latitude: formData.Latitude,
-        Longitude: formData.Longitude,
-      };
-      
-      fd.append("specs", JSON.stringify(specs));
+      // Append specs as JSON string
+      if (Object.keys(specsData).length > 0) {
+        fd.append("specs", JSON.stringify(specsData));
+      }
+
+      // Handle main image
+      if (selectedMainImage) {
+        fd.append("featured_image", selectedMainImage);
+        logger.debug("New featured image attached");
+      } else if (removeMainImage) {
+        fd.append("remove_featured_image", "true");
+        logger.debug("Featured image marked for removal");
+      }
+
+      // Add new gallery images
+      selectedImages.forEach((img, index) => {
+        fd.append("gallery_images", img);
+        logger.debug(`Gallery image [${index}] attached`);
+      });
+
+      // Handle removed gallery images
+      if (imagesToRemove.length > 0) {
+        fd.append("remove_gallery_images", JSON.stringify(imagesToRemove));
+        logger.debug("Gallery images to remove:", imagesToRemove);
+      }
 
       const token = getAdminToken();
       if (!token) {
-        toast.error("Please login to continue");
+        logger.error("No auth token found");
+        showError("Please login to continue");
         handleAuthFailure();
         return;
       }
 
+      logger.info(`Sending PUT request to /api/v1/projects/${projectId}`);
+
       const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}`, {
         method: "PUT",
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
         },
         body: fd,
       });
 
       const result = await response.json();
-      
+      logger.debug("API Response:", result);
+
       if (!response.ok) {
         throw new Error(result.message || "Update failed");
       }
 
+      toast.dismiss(saveToastId);
+
       if (result.success) {
-        toast.success("Project updated successfully!");
+        logger.success("Project updated successfully!", result);
+        showSuccess("Project updated successfully!");
+
+        // Reset change tracking
         setOriginalData(formData);
         setSelectedMainImage(null);
         setSelectedImages([]);
+        setImagesToRemove([]);
+        setRemoveMainImage(false);
         setHasChanges(false);
-        
+
         // Refresh project data
-        await fetchProjectData();
+        setTimeout(() => {
+          fetchProject();
+        }, 1000);
       }
     } catch (e) {
-      console.error("Submit error:", e);
-      toast.error(e.message || "Failed to update project");
+      logger.error("Submit error:", e);
+      toast.dismiss(saveToastId);
+      showError(e.message || "Failed to update project");
     } finally {
       setSaving(false);
+      logger.groupEnd();
     }
-  };
+  }, [formData, projectId, selectedMainImage, selectedImages, imagesToRemove, removeMainImage, validateForm, handleAuthFailure, fetchProject]);
 
   // ==================== UTILITY FUNCTIONS ====================
-  const resetForm = () => {
-    if (window.confirm("Are you sure you want to discard all changes?")) {
-      setFormData(originalData);
+  const copyFormData = useCallback(() => {
+    const dataToCopy = JSON.stringify(formData, null, 2);
+    navigator.clipboard.writeText(dataToCopy);
+    showSuccess("Form data copied to clipboard!");
+  }, [formData]);
+
+  const resetForm = useCallback(() => {
+    if (window.confirm("Are you sure you want to reset all changes?")) {
+      if (originalData) {
+        setFormData(originalData);
+      }
       setSelectedMainImage(null);
       setSelectedImages([]);
+      setImagesToRemove([]);
+      setRemoveMainImage(false);
       setErrors({});
       setTouched({});
-      toast.success("Changes discarded");
+      fetchProject(); // Reload original data
+      showSuccess("Form reset to original values");
     }
-  };
+  }, [originalData, fetchProject]);
 
-  const copyFormData = () => {
-    navigator.clipboard.writeText(JSON.stringify(formData, null, 2));
-    toast.success("Form data copied to clipboard!");
-  };
-
-  const previewProject = () => {
+  const previewProject = useCallback(() => {
     if (!formData.project_slug) {
-      toast.error("Project slug not found");
+      showError("Project has no slug");
       return;
     }
-    window.open(`${window.location.origin}/projects/${formData.project_slug}`, '_blank');
-  };
+    window.open(`${window.location.origin}/projects/${formData.project_slug}`, "_blank");
+  }, [formData.project_slug]);
 
-  const getFieldClass = (field, baseClass = fieldCls, errorClass = fieldErrorCls) => {
-    return errors[field] && touched[field] ? errorClass : baseClass;
-  };
+  const getFieldClass = useCallback(
+    (field, baseClass = fieldCls, errorClass = fieldErrorCls) => {
+      return errors[field] && touched[field] ? errorClass : baseClass;
+    },
+    [errors, touched]
+  );
 
-  // ==================== LOADING STATE ====================
+  const getWordCount = useCallback((htmlContent) => {
+    if (!htmlContent) return 0;
+    const plainText = htmlContent.replace(/<[^>]*>/g, "");
+    return plainText.split(/\s+/).filter(Boolean).length;
+  }, []);
+
+  // ==================== LOADING STATES ====================
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Toaster />
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-gray-700 animate-spin mx-auto mb-3" />
-          <div className="text-sm text-gray-600">Verifying authentication...</div>
+          <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-gray-600 font-medium">Verifying authentication...</p>
         </div>
-        <ToastContainer position="top-right" autoClose={3000} />
       </div>
     );
   }
@@ -883,1091 +1110,918 @@ export default function EditProjectPage() {
     return null;
   }
 
-  if (loading) {
+  if (pageLoading) {
     return (
-      <div className="min-h-screen bg-[#f6f6f6] flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 text-gray-700 animate-spin mx-auto mb-3" />
-          <div className="text-sm text-gray-600">Loading project data...</div>
+      <>
+        <Toaster />
+        <AdminNavbar admin={admin} isAuthenticated={isAuthenticated} onLogout={handleLogout} logoutLoading={logoutLoading} />
+        <div className="min-h-screen bg-gray-100 pt-4">
+          <div className="max-w-[1250px] mx-auto px-3">
+            <div className="bg-white border border-gray-300 rounded p-8">
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="w-12 h-12 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin" />
+                <p className="mt-4 text-gray-600 font-medium">Loading project...</p>
+                <p className="mt-2 text-gray-400 text-sm">Project ID: {projectId}</p>
+              </div>
+            </div>
+          </div>
         </div>
-        <ToastContainer position="top-right" autoClose={3000} />
-      </div>
+      </>
     );
   }
 
+  if (projectNotFound) {
+    return (
+      <>
+        <Toaster />
+        <AdminNavbar admin={admin} isAuthenticated={isAuthenticated} onLogout={handleLogout} logoutLoading={logoutLoading} />
+        <div className="min-h-screen bg-gray-100 pt-4">
+          <div className="max-w-[1250px] mx-auto px-3">
+            <div className="bg-white border border-gray-300 rounded p-8">
+              <div className="flex flex-col items-center justify-center py-12">
+                <AlertCircle className="w-16 h-16 text-red-500 mb-4" />
+                <h2 className="text-xl font-bold text-gray-800 mb-2">Project Not Found</h2>
+                <p className="text-gray-600 mb-6">The project with ID "{projectId}" could not be found.</p>
+                <button
+                  onClick={() => (window.location.href = "/admin/projects")}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Back to Projects
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const descriptionWordCount = getWordCount(formData.Description);
+  const totalGalleryCount = existingGallery.length - imagesToRemove.length + selectedImages.length;
+
   return (
     <>
-      <ToastContainer 
-        position="top-right"
-        autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
-      />
+      <Toaster position="top-right" reverseOrder={false} gutter={8} toastOptions={{ duration: 4000 }} />
 
-      <div className="min-h-screen bg-[#f6f6f6]">
-        <div className="max-w-[1250px] mx-auto px-4 py-4">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-3">
-              <div className="text-[18px] font-semibold text-gray-800">
-                Edit Project
+      <AdminNavbar admin={admin} isAuthenticated={isAuthenticated} onLogout={handleLogout} logoutLoading={logoutLoading} />
+
+      <div className="min-h-screen bg-gray-100 pt-4">
+        <div className="max-w-[1250px] mx-auto px-3">
+          {/* Top Control Bar */}
+          <div className="bg-white border border-gray-300 rounded-t p-3">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-gray-800">
+                  Edit Project
+                  <span className="text-sm font-normal text-gray-500 ml-2">#{projectId}</span>
+                </h1>
+
+                <button
+                  type="button"
+                  onClick={() => window.history.back()}
+                  className="w-8 h-8 border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-50 rounded"
+                  title="Back"
+                >
+                  <ArrowLeft className="w-4 h-4 text-gray-700" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.history.forward()}
+                  className="w-8 h-8 border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-50 rounded"
+                  title="Forward"
+                >
+                  <ArrowRight className="w-4 h-4 text-gray-700" />
+                </button>
+
+                {hasChanges && (
+                  <span className="ml-2 px-2 py-1 bg-amber-100 text-amber-800 text-xs font-medium rounded">
+                    Unsaved changes
+                  </span>
+                )}
               </div>
-              {hasChanges && (
-                <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-[11px] rounded">
-                  Unsaved Changes
-                </span>
-              )}
-            </div>
-            <div className="flex items-center space-x-3">
-              <button
-                type="button"
-                onClick={fetchProjectData}
-                className="inline-flex items-center px-3 py-1 border border-gray-300 bg-white text-[12px] hover:bg-gray-50"
-              >
-                <RefreshCw className="w-3 h-3 mr-1" />
-                Refresh
-              </button>
-              
-              <button
-                type="button"
-                onClick={previewProject}
-                className="inline-flex items-center px-3 py-1 border border-gray-300 bg-white text-[12px] hover:bg-gray-50"
-              >
-                <Eye className="w-3 h-3 mr-1" />
-                Preview
-              </button>
-              
-              <div className="flex items-center bg-white px-3 py-1 border border-gray-300">
-                <Globe className="w-3 h-3 text-blue-600 mr-1" />
-                <span className="text-[11px] font-medium text-gray-900">SEO:</span>
-                <span className={`ml-1 text-[11px] font-bold ${
-                  seoScore >= 80 ? 'text-green-600' :
-                  seoScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-                }`}>
-                  {seoScore}%
-                </span>
+
+              <div className="flex items-center gap-3">
+                {/* Debug Console Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    logger.group("Current Form State");
+                    const projectFields = {};
+                    const specsFields = {};
+                    Object.keys(formData).forEach((key) => {
+                      if (SPECS_TABLE_FIELDS.includes(key)) {
+                        specsFields[key] = formData[key];
+                      } else if (PROJECT_TABLE_FIELDS.includes(key)) {
+                        projectFields[key] = formData[key];
+                      }
+                    });
+                    logger.table(projectFields, "Project Table Fields");
+                    logger.table(specsFields, "Specs Table Fields");
+                    logger.debug("Errors:", errors);
+                    logger.debug("Existing Main Image:", existingMainImage);
+                    logger.debug("New Main Image:", selectedMainImage?.name || null);
+                    logger.debug("Existing Gallery:", existingGallery.length);
+                    logger.debug("New Gallery:", selectedImages.map((img) => img.name));
+                    logger.debug("Images to Remove:", imagesToRemove);
+                    logger.groupEnd();
+                    showSuccess("Check browser console for debug info");
+                  }}
+                  className="inline-flex items-center px-3 py-2 text-sm font-medium border border-purple-300 bg-purple-50 text-purple-700 rounded hover:bg-purple-100"
+                >
+                  🐛 Debug
+                </button>
+
+                {/* Refresh Button */}
+                <button
+                  type="button"
+                  onClick={fetchProject}
+                  disabled={pageLoading}
+                  className="inline-flex items-center px-3 py-2 text-sm font-medium border border-gray-300 bg-white text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-1 ${pageLoading ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+
+                {/* SEO Score Display */}
+                <div className="flex items-center bg-gray-100 border border-gray-200 px-3 py-1 rounded">
+                  <Globe className="w-4 h-4 text-blue-600 mr-2" />
+                  <span className="text-sm font-medium text-gray-700">SEO:</span>
+                  <span className={`ml-1 text-sm font-bold ${seoScore >= 80 ? "text-green-600" : seoScore >= 60 ? "text-amber-600" : "text-red-600"}`}>
+                    {seoScore}%
+                  </span>
+                </div>
+
+                {formData.project_slug && (
+                  <button
+                    type="button"
+                    onClick={previewProject}
+                    className="inline-flex items-center px-4 py-2 text-sm font-medium border border-gray-300 bg-white text-gray-700 rounded hover:bg-gray-50"
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    Preview
+                  </button>
+                )}
               </div>
             </div>
-          </div>
 
-          {/* Project ID Badge */}
-          <div className="mb-3 flex items-center gap-2">
-            <span className="px-2 py-1 bg-gray-200 text-gray-700 text-[11px] rounded">
-              ID: {projectId}
-            </span>
-            {formData.project_slug && (
-              <span className="px-2 py-1 bg-blue-100 text-blue-700 text-[11px] rounded">
-                Slug: {formData.project_slug}
-              </span>
-            )}
-          </div>
+            <ValidationIndicator formData={formData} />
 
-          {/* Back/Forward bar */}
-          <div className="flex items-center gap-2 mb-3">
-            <button
-              type="button"
-              onClick={() => {
-                if (hasChanges) {
-                  if (window.confirm("You have unsaved changes. Are you sure you want to leave?")) {
-                    router.back();
-                  }
-                } else {
-                  router.back();
-                }
-              }}
-              className="w-10 h-8 border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-50"
-              title="Back"
-            >
-              <ArrowLeft className="w-4 h-4 text-gray-700" />
-            </button>
-            <button
-              type="button"
-              onClick={() => router.forward()}
-              className="w-10 h-8 border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-50"
-              title="Forward"
-            >
-              <ArrowRight className="w-4 h-4 text-gray-700" />
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push("/admin/projects")}
-              className="h-8 px-3 border border-gray-300 bg-white text-[12px] hover:bg-gray-50"
-            >
-              ← Back to Projects
-            </button>
-          </div>
-
-          {/* Validation Indicator */}
-          <ValidationIndicator formData={formData} />
-
-          {/* Main Content - Same structure as Add page but with edit functionality */}
-          <div className="border border-gray-300 bg-white">
-            <div className="flex items-center gap-1 border-b border-gray-300 px-2 py-2">
-              <span className="px-3 py-1 text-[12px] bg-white font-semibold border border-gray-300">
-                Project Details
-              </span>
+            {/* Tabs */}
+            <div className="flex items-center gap-2 border-b border-gray-200 pb-2 mb-3">
+              {["details", "location", "amenities", "media", "seo"].map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-3 py-1.5 text-sm font-medium border rounded capitalize ${
+                    activeTab === tab
+                      ? "bg-gray-800 text-white border-gray-800"
+                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
             </div>
+          </div>
 
+          {/* Form Content Area */}
+          <div className="border border-gray-300 border-t-0" style={{ backgroundColor: "rgb(236,237,238)" }}>
             <div className="p-3">
-              <div className="grid grid-cols-12 gap-3">
-                {/* LEFT COLUMN - Same as Add page */}
-                <div className="col-span-12 md:col-span-4 space-y-3">
-                  {/* Featured + Status + Verified */}
-                  <div className={boxCls}>
-                    <div className={boxBodyCls}>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleChange("featured_project", formData.featured_project === "1" ? "0" : "1")}
-                          className={`h-9 border border-gray-300 text-[12px] ${
-                            formData.featured_project === "1" ? "bg-[#f6d6be]" : "bg-gray-100"
-                          }`}
-                        >
-                          Featured
-                        </button>
+              <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+                <div className="grid grid-cols-12 gap-3">
+                  {/* LEFT COLUMN */}
+                  <div className="col-span-12 md:col-span-4 space-y-3">
+                    {/* Featured + Status */}
+                    <div className={boxCls}>
+                      <div className={boxBodyCls}>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleChange("featured_project", formData.featured_project === "1" ? "0" : "1")}
+                            className={`h-9 border border-gray-300 rounded text-sm ${
+                              formData.featured_project === "1" ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-700"
+                            }`}
+                          >
+                            Featured
+                          </button>
 
-                        <select
-                          className={selectCls}
-                          value={formData.status}
-                          onChange={(e) => handleChange("status", e.target.value)}
-                        >
-                          <option value={1}>Active</option>
-                          <option value={0}>Inactive</option>
-                          <option value={2}>Draft</option>
-                        </select>
-                      </div>
-                      
-                      <div className="mt-2">
-                        <label className="flex items-center gap-2 text-[12px]">
-                          <input
-                            type="checkbox"
-                            checked={formData.verified === 1}
-                            onChange={(e) => handleChange("verified", e.target.checked ? 1 : 0)}
-                            className="w-3.5 h-3.5"
-                          />
-                          Verified Project
-                        </label>
+                          <select
+                            className={selectCls}
+                            value={formData.status}
+                            onChange={(e) => handleChange("status", Number(e.target.value))}
+                          >
+                            <option value={1}>Active</option>
+                            <option value={0}>Draft</option>
+                          </select>
+                        </div>
+
+                        <div className="mt-2">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={formData.verified === 1}
+                              onChange={(e) => handleChange("verified", e.target.checked ? 1 : 0)}
+                              className="w-3.5 h-3.5 rounded"
+                            />
+                            Verified Project
+                          </label>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Basic Details - Same as Add page */}
-                  <div className={boxCls}>
-                    <div className={boxHeaderCls}>Basic Details</div>
-                    <div className={boxBodyCls}>
-                      <div className="space-y-2">
-                        {/* Project Name */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelRequiredCls} col-span-4`}>Project Name</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={getFieldClass("ProjectName")}
-                              value={formData.ProjectName || ""} 
-                              onChange={(e) => handleChange("ProjectName", e.target.value)}
-                              onBlur={() => handleBlur("ProjectName")}
-                            />
-                            {errors.ProjectName && touched.ProjectName && (
-                              <span className="text-[10px] text-red-500">{errors.ProjectName}</span>
-                            )}
+                    {/* Basic Details */}
+                    <div className={boxCls}>
+                      <div className={boxHeaderCls}>Basic Details</div>
+                      <div className={boxBodyCls}>
+                        <div className="space-y-2">
+                          {/* Project Name */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelRequiredCls} col-span-4`}>Project Name</label>
+                            <div className="col-span-8">
+                              <input
+                                className={getFieldClass("ProjectName")}
+                                value={formData.ProjectName || ""}
+                                onChange={(e) => handleChange("ProjectName", e.target.value)}
+                                onBlur={() => handleBlur("ProjectName")}
+                                placeholder="Enter project name"
+                              />
+                              {errors.ProjectName && touched.ProjectName && (
+                                <span className="text-xs text-red-500">{errors.ProjectName}</span>
+                              )}
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Project Slug */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelRequiredCls} col-span-4`}>Project Slug</label>
-                          <div className="col-span-8 flex gap-1">
-                            <input 
-                              className={getFieldClass("project_slug")}
-                              value={formData.project_slug || ""} 
-                              onChange={(e) => handleChange("project_slug", e.target.value)}
-                              onBlur={() => handleBlur("project_slug")}
-                            />
-                            <button 
-                              type="button" 
-                              onClick={generateSlug} 
-                              className="h-8 px-2 border border-gray-300 bg-white text-[11px] hover:bg-gray-50 whitespace-nowrap"
-                            >
-                              Generate
-                            </button>
+                          {/* Project Slug */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelRequiredCls} col-span-4`}>Project Slug</label>
+                            <div className="col-span-8 flex gap-1">
+                              <input
+                                className={getFieldClass("project_slug")}
+                                value={formData.project_slug || ""}
+                                onChange={(e) => handleChange("project_slug", e.target.value)}
+                                onBlur={() => handleBlur("project_slug")}
+                              />
+                              <button
+                                type="button"
+                                onClick={generateSlug}
+                                className="h-9 px-3 border border-gray-300 bg-white text-xs rounded hover:bg-gray-50 whitespace-nowrap"
+                              >
+                                Generate
+                              </button>
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Price */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelRequiredCls} col-span-4`}>Price (AED)</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={getFieldClass("price")}
-                              type="number" 
-                              value={formData.price || ""} 
-                              onChange={(e) => handleChange("price", e.target.value)}
-                              onBlur={() => handleBlur("price")}
-                            />
-                            {errors.price && touched.price && (
-                              <span className="text-[10px] text-red-500">{errors.price}</span>
-                            )}
+                          {/* Price */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelRequiredCls} col-span-4`}>Price (AED)</label>
+                            <div className="col-span-8">
+                              <input
+                                className={getFieldClass("price")}
+                                type="number"
+                                value={formData.price || ""}
+                                onChange={(e) => handleChange("price", e.target.value)}
+                                onBlur={() => handleBlur("price")}
+                                placeholder="2500000"
+                              />
+                              {errors.price && touched.price && (
+                                <span className="text-xs text-red-500">{errors.price}</span>
+                              )}
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Price End */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Price End</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              type="number" 
-                              value={formData.price_end || ""} 
-                              onChange={(e) => handleChange("price_end", e.target.value)}
-                            />
+                          {/* Price End */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelCls} col-span-4`}>Price End</label>
+                            <div className="col-span-8">
+                              <input
+                                className={fieldCls}
+                                type="number"
+                                value={formData.price_end || ""}
+                                onChange={(e) => handleChange("price_end", e.target.value)}
+                                placeholder="3500000"
+                              />
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Ask to Price */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Ask to Price</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={selectCls} 
-                              value={formData.askprice} 
-                              onChange={(e) => handleChange("askprice", e.target.value)}
-                            >
-                              <option value="0">No</option>
-                              <option value="1">Yes</option>
-                            </select>
+                          {/* Bedrooms */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelCls} col-span-4`}>Bedrooms</label>
+                            <div className="col-span-8">
+                              <select
+                                className={selectCls}
+                                value={formData.bedroom || ""}
+                                onChange={(e) => handleChange("bedroom", e.target.value)}
+                              >
+                                <option value="">Select</option>
+                                <option value="Studio">Studio</option>
+                                {[1, 2, 3, 4, 5, 6].map((n) => (
+                                  <option key={n} value={n}>{n}</option>
+                                ))}
+                                <option value="7+">7+</option>
+                              </select>
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Bedrooms */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Bedrooms</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={selectCls}
-                              value={formData.bedroom} 
-                              onChange={(e) => handleChange("bedroom", e.target.value)}
-                            >
-                              <option value="">Select</option>
-                              <option value="Studio">Studio</option>
-                              {[1,2,3,4,5,6].map(n => (
-                                <option key={n} value={n}>{n}</option>
-                              ))}
-                              <option value="7+">7+</option>
-                            </select>
+                          {/* Area */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelCls} col-span-4`}>Area (Sq.Ft.)</label>
+                            <div className="col-span-8">
+                              <input
+                                className={fieldCls}
+                                type="number"
+                                value={formData.area || ""}
+                                onChange={(e) => handleChange("area", e.target.value)}
+                                placeholder="1200"
+                              />
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Bathrooms */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Bathrooms</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.bathrooms || ""} 
-                              onChange={(e) => handleChange("bathrooms", e.target.value)}
-                            />
+                          {/* Floors */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelCls} col-span-4`}>Total Floors</label>
+                            <div className="col-span-8">
+                              <input
+                                className={fieldCls}
+                                type="number"
+                                value={formData.floors || ""}
+                                onChange={(e) => handleChange("floors", e.target.value)}
+                              />
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Area */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Area (Sq.Ft.)</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              type="number" 
-                              value={formData.area || ""} 
-                              onChange={(e) => handleChange("area", e.target.value)}
-                            />
+                          {/* Total Units */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelCls} col-span-4`}>Total Units</label>
+                            <div className="col-span-8">
+                              <input
+                                className={fieldCls}
+                                type="number"
+                                value={formData.total_building || ""}
+                                onChange={(e) => handleChange("total_building", e.target.value)}
+                              />
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Area End */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Area End</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              type="number" 
-                              value={formData.area_end || ""} 
-                              onChange={(e) => handleChange("area_end", e.target.value)}
-                            />
+                          {/* DLD Permit */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelCls} col-span-4`}>DLD Permit</label>
+                            <div className="col-span-8">
+                              <input
+                                className={fieldCls}
+                                value={formData.dld_permit || ""}
+                                onChange={(e) => handleChange("dld_permit", e.target.value)}
+                              />
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Floors */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Total Floors</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              type="number" 
-                              value={formData.floors || ""} 
-                              onChange={(e) => handleChange("floors", e.target.value)}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Total Units */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Total Units</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              type="number" 
-                              value={formData.total_building || ""} 
-                              onChange={(e) => handleChange("total_building", e.target.value)}
-                            />
-                          </div>
-                        </div>
-
-                        {/* DLD Permit */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>DLD Permit</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.dld_permit || ""} 
-                              onChange={(e) => handleChange("dld_permit", e.target.value)}
-                            />
-                          </div>
-                        </div>
-
-                        {/* RERA Number */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>RERA Number</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.ReraNumber || ""} 
-                              onChange={(e) => handleChange("ReraNumber", e.target.value)}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Completion Date */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Completion Date</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              type="date"
-                              value={formData.completion_date || ""} 
-                              onChange={(e) => handleChange("completion_date", e.target.value)}
-                            />
+                          {/* Completion Date */}
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <label className={`${labelCls} col-span-4`}>Completion Date</label>
+                            <div className="col-span-8">
+                              <input
+                                className={fieldCls}
+                                type="date"
+                                value={formData.completion_date || ""}
+                                onChange={(e) => handleChange("completion_date", e.target.value)}
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Developer Info */}
-                  <div className={boxCls}>
-                    <div className={boxHeaderCls}>Developer Information</div>
-                    <div className={boxBodyCls}>
-                      <div className="space-y-2">
-                        {/* Developer Name */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Developer Name</label>
-                          <div className="col-span-8">
-                            <input 
+                    {/* Developer Info (SPECS FIELDS) */}
+                    <div className={boxCls}>
+                      <div className={boxHeaderCls}>
+                        Developer Information
+                        <span className="text-xs text-blue-600 ml-2">(Specs)</span>
+                      </div>
+                      <div className={boxBodyCls}>
+                        <div className="space-y-2">
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Developer Name</label>
+                            <input
                               className={fieldCls}
-                              value={formData.DeveloperName || ""} 
+                              value={formData.DeveloperName || ""}
                               onChange={(e) => handleChange("DeveloperName", e.target.value)}
-                              placeholder="e.g., Emaar Properties"
+                              placeholder="Emaar Properties"
                             />
                           </div>
-                        </div>
 
-                        {/* Company Name */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Company Name</label>
-                          <div className="col-span-8">
-                            <input 
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Company Name</label>
+                            <input
                               className={fieldCls}
-                              value={formData.CompanyName || ""} 
+                              value={formData.CompanyName || ""}
                               onChange={(e) => handleChange("CompanyName", e.target.value)}
-                              placeholder="e.g., Emaar Properties PJSC"
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>RERA Number</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.ReraNumber || ""}
+                              onChange={(e) => handleChange("ReraNumber", e.target.value)}
+                              placeholder="RERA123456"
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Developer ID</label>
+                            <input
+                              className={fieldCls}
+                              type="number"
+                              value={formData.developer_id || ""}
+                              onChange={(e) => handleChange("developer_id", e.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Agent ID</label>
+                            <input
+                              className={fieldCls}
+                              type="number"
+                              value={formData.agent_id || ""}
+                              onChange={(e) => handleChange("agent_id", e.target.value)}
                             />
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
 
-                {/* MIDDLE COLUMN */}
-                <div className="col-span-12 md:col-span-4 space-y-3">
-                  {/* Location Details */}
-                  <div className={boxCls}>
-                    <div className={boxHeaderCls}>Location Details</div>
-                    <div className={boxBodyCls}>
-                      <div className="space-y-2">
-                        {/* Country */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Country</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={selectCls}
-                              value={formData.country} 
-                              onChange={(e) => handleChange("country", e.target.value)}
-                            >
-                              <option value="UAE">UAE</option>
-                              <option value="India">India</option>
-                              <option value="USA">USA</option>
-                              <option value="UK">UK</option>
-                              <option value="Canada">Canada</option>
-                            </select>
-                          </div>
-                        </div>
+                    {/* Images */}
+                    <div className={boxCls}>
+                      <div className={boxHeaderCls}>Images</div>
+                      <div className={boxBodyCls}>
+                        <div className="text-sm text-gray-700 mb-2 font-medium">Featured Image</div>
 
-                        {/* State/Emirate */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>State/Emirate</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.StateName || ""} 
-                              onChange={(e) => handleChange("StateName", e.target.value)}
-                              placeholder="e.g., Dubai"
+                        {/* Existing Main Image */}
+                        {existingMainImage && !removeMainImage && !selectedMainImage && (
+                          <div className="mb-3">
+                            <ExistingImage
+                              src={existingMainImage}
+                              label="Current"
+                              isMain={true}
+                              onRemove={() => removeExistingImage(null, "main")}
                             />
                           </div>
-                        </div>
+                        )}
 
-                        {/* City */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>City</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.CityName || ""} 
-                              onChange={(e) => handleChange("CityName", e.target.value)}
-                              placeholder="e.g., Dubai"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Community */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Community</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.community_id || ""} 
-                              onChange={(e) => handleChange("community_id", e.target.value)}
-                              placeholder="Community ID"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Sub Community */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Sub Community</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.sub_community_id || ""} 
-                              onChange={(e) => handleChange("sub_community_id", e.target.value)}
-                              placeholder="Sub Community ID"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Building Name */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Building Name</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.BuildingName || ""} 
-                              onChange={(e) => handleChange("BuildingName", e.target.value)}
-                              placeholder="e.g., Burj Khalifa"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Street Name */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Street Name</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.StreetName || ""} 
-                              onChange={(e) => handleChange("StreetName", e.target.value)}
-                              placeholder="e.g., Sheikh Zayed Road"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Landmark */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Landmark</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.LandMark || ""} 
-                              onChange={(e) => handleChange("LandMark", e.target.value)}
-                              placeholder="e.g., Near Dubai Mall"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Pin Code */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Pin Code</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.PinCode || ""} 
-                              onChange={(e) => handleChange("PinCode", e.target.value)}
-                              placeholder="e.g., 12345"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Location Name */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Location Name</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.LocationName || ""} 
-                              onChange={(e) => handleChange("LocationName", e.target.value)}
-                              placeholder="e.g., Downtown Dubai"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Latitude */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Latitude</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.Latitude || ""} 
-                              onChange={(e) => handleChange("Latitude", e.target.value)}
-                              placeholder="e.g., 25.2048"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Longitude */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Longitude</label>
-                          <div className="col-span-8">
-                            <input 
-                              className={fieldCls}
-                              value={formData.Longitude || ""} 
-                              onChange={(e) => handleChange("Longitude", e.target.value)}
-                              placeholder="e.g., 55.2708"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Property Type & Status */}
-                  <div className={boxCls}>
-                    <div className={boxHeaderCls}>Property Type & Status</div>
-                    <div className={boxBodyCls}>
-                      <div className="space-y-2">
-                        {/* Listing Type */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelRequiredCls} col-span-4`}>Listing Type</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={getFieldClass("listing_type", selectCls, selectErrorCls)}
-                              value={formData.listing_type} 
-                              onChange={(e) => handleChange("listing_type", e.target.value)}
-                              onBlur={() => handleBlur("listing_type")}
-                            >
-                              <option value="sale">Sale</option>
-                              <option value="rent">Rent</option>
-                              <option value="short-term">Short Term</option>
-                            </select>
-                            {errors.listing_type && touched.listing_type && (
-                              <span className="text-[10px] text-red-500">{errors.listing_type}</span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Property Type */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelRequiredCls} col-span-4`}>Property Type</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={getFieldClass("property_type", selectCls, selectErrorCls)}
-                              value={formData.property_type} 
-                              onChange={(e) => handleChange("property_type", e.target.value)}
-                              onBlur={() => handleBlur("property_type")}
-                            >
-                              <option value="Apartment">Apartment</option>
-                              <option value="Villa">Villa</option>
-                              <option value="Townhouse">Townhouse</option>
-                              <option value="Penthouse">Penthouse</option>
-                              <option value="Office">Office</option>
-                              <option value="Shop">Shop</option>
-                              <option value="Warehouse">Warehouse</option>
-                              <option value="Land">Land</option>
-                              <option value="Building">Building</option>
-                            </select>
-                            {errors.property_type && touched.property_type && (
-                              <span className="text-[10px] text-red-500">{errors.property_type}</span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Kitchen Type */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Kitchen Type</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={selectCls}
-                              value={formData.kitchen_type} 
-                              onChange={(e) => handleChange("kitchen_type", e.target.value)}
-                            >
-                              <option value="">Select</option>
-                              <option value="Modular">Modular</option>
-                              <option value="Open">Open</option>
-                              <option value="Closed">Closed</option>
-                              <option value="Semi-Modular">Semi-Modular</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Occupancy */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Occupancy</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={selectCls}
-                              value={formData.occupancy} 
-                              onChange={(e) => handleChange("occupancy", e.target.value)}
-                            >
-                              <option value="">Select</option>
-                              <option value="Vacant">Vacant</option>
-                              <option value="Tenanted">Tenanted</option>
-                              <option value="Owner">Owner</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Exclusive Status */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Exclusive Status</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={selectCls}
-                              value={formData.exclusive_status} 
-                              onChange={(e) => handleChange("exclusive_status", e.target.value)}
-                            >
-                              <option value="exclusive">Exclusive</option>
-                              <option value="non-exclusive">Non-Exclusive</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Vaastu */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>Vaastu</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={selectCls}
-                              value={formData.Vaastu} 
-                              onChange={(e) => handleChange("Vaastu", e.target.value)}
-                            >
-                              <option value="">Select</option>
-                              <option value="Yes">Yes</option>
-                              <option value="No">No</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* QC */}
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <label className={`${labelCls} col-span-4`}>QC Status</label>
-                          <div className="col-span-8">
-                            <select 
-                              className={selectCls}
-                              value={formData.qc} 
-                              onChange={(e) => handleChange("qc", e.target.value)}
-                            >
-                              <option value="">Select</option>
-                              <option value="approved">Approved</option>
-                              <option value="pending">Pending</option>
-                              <option value="rejected">Rejected</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* RIGHT COLUMN */}
-                <div className="col-span-12 md:col-span-4 space-y-3">
-                  {/* Media Section */}
-                  <div className={boxCls}>
-                    <div className={boxHeaderCls}>Media</div>
-                    <div className={boxBodyCls}>
-                      <div className="space-y-3">
-                        {/* Featured Image */}
-                        <div>
-                          <label className={`${labelCls} block mb-1`}>Featured Image</label>
-                          <div className="border border-gray-300 border-dashed p-2">
-                            {existingFeaturedImage ? (
-                              <div className="space-y-2">
-                                <p className="text-[11px] text-gray-600 mb-1">Current Featured Image:</p>
-                                <div className="relative">
-                                  <img 
-                                    src={existingFeaturedImage.Url || existingFeaturedImage.url} 
-                                    alt="Featured" 
-                                    className="w-full h-40 object-cover border"
-                                  />
-                                </div>
+                        {/* New Main Image */}
+                        {selectedMainImage && (
+                          <div className="mb-3">
+                            <div className="relative overflow-hidden border border-green-500 ring-2 ring-green-300 bg-white rounded">
+                              <img
+                                src={URL.createObjectURL(selectedMainImage)}
+                                alt="New Featured"
+                                className="w-full h-32 object-cover"
+                              />
+                              <div className="absolute top-2 left-2 px-2 py-1 bg-green-600 text-white text-xs rounded-full">
+                                New
                               </div>
-                            ) : (
-                              <p className="text-[11px] text-gray-500 mb-2">No featured image set</p>
-                            )}
-                            
-                            {selectedMainImage ? (
-                              <div className="mt-2">
-                                <p className="text-[11px] text-green-600 mb-1">New Featured Image Selected:</p>
-                                <div className="flex items-center justify-between bg-green-50 p-2 border border-green-200">
-                                  <span className="text-[11px] truncate">{selectedMainImage.name}</span>
-                                  <button 
+                              <button
+                                type="button"
+                                onClick={() => removeNewImage(null, "main")}
+                                className="absolute top-2 right-2 w-7 h-7 bg-red-600 hover:bg-red-700 text-white flex items-center justify-center rounded-full"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <label className="flex items-center justify-center h-9 border border-dashed border-gray-400 bg-gray-50 hover:bg-gray-100 cursor-pointer text-sm text-gray-600 rounded">
+                          <Plus className="w-4 h-4 mr-1" />
+                          {existingMainImage || selectedMainImage ? "Replace Featured Image" : "Add Featured Image"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleImageUpload(e, "main")}
+                            className="hidden"
+                          />
+                        </label>
+
+                        {/* Gallery Images */}
+                        <div className="mt-4 text-sm text-gray-700 mb-2 font-medium">
+                          Gallery Images ({totalGalleryCount}/20)
+                        </div>
+
+                        {/* Existing Gallery */}
+                        {existingGallery.length > 0 && (
+                          <div className="grid grid-cols-2 gap-2 mb-3">
+                            {existingGallery.map((img) => (
+                              <ExistingImage
+                                key={img.id}
+                                src={img.Url}
+                                label="Existing"
+                                onRemove={() => removeExistingImage(img.id, "gallery")}
+                              />
+                            ))}
+                          </div>
+                        )}
+
+                        {/* New Gallery Images */}
+                        {selectedImages.length > 0 && (
+                          <div className="grid grid-cols-2 gap-2 mb-3">
+                            {selectedImages.map((img, i) => (
+                              <div key={i} className="relative group">
+                                <div className="relative overflow-hidden border border-green-400 bg-white rounded">
+                                  <img
+                                    src={URL.createObjectURL(img)}
+                                    alt={`New ${i}`}
+                                    className="w-full h-28 object-cover"
+                                  />
+                                  <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-green-600 text-white text-[9px] rounded-full">
+                                    New
+                                  </div>
+                                  <button
                                     type="button"
-                                    onClick={() => removeNewImage(null, "main")}
-                                    className="text-red-500 hover:text-red-700"
+                                    onClick={() => removeNewImage(i, "gallery")}
+                                    className="absolute top-1 right-1 w-6 h-6 bg-red-600 hover:bg-red-700 text-white flex items-center justify-center rounded-full"
                                   >
                                     <X className="w-3 h-3" />
                                   </button>
                                 </div>
                               </div>
-                            ) : (
-                              <div className="mt-2">
-                                <label className="flex items-center justify-center h-10 border border-gray-300 bg-gray-50 text-[12px] cursor-pointer hover:bg-gray-100">
-                                  <Plus className="w-3 h-3 mr-1" />
-                                  Upload New Featured Image
-                                  <input 
-                                    type="file" 
-                                    accept="image/*" 
-                                    className="hidden" 
-                                    onChange={(e) => handleImageUpload(e, "main")}
-                                  />
-                                </label>
-                                <p className="text-[10px] text-gray-500 mt-1">Max 5MB, JPG/PNG/WebP</p>
-                              </div>
-                            )}
+                            ))}
                           </div>
-                        </div>
+                        )}
 
-                        {/* Gallery Images */}
-                        <div>
-                          <label className={`${labelCls} block mb-1`}>Gallery Images</label>
-                          <div className="border border-gray-300 border-dashed p-2">
-                            {/* Existing Images */}
-                            {existingImages.length > 0 && (
-                              <div className="mb-3">
-                                <p className="text-[11px] text-gray-600 mb-2">Existing Images ({existingImages.length}):</p>
-                                <div className="grid grid-cols-3 gap-2 mb-3">
-                                  {existingImages.map((img, idx) => (
-                                    <ExistingImageCard
-                                      key={idx}
-                                      image={img}
-                                      isFeatured={existingFeaturedImage && 
-                                        (existingFeaturedImage.id === (img.id || img.image_id))}
-                                      deleting={deletingImageId === (img.id || img.image_id)}
-                                      onDelete={handleDeleteExistingImage}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Selected New Images */}
-                            {selectedImages.length > 0 && (
-                              <div className="mb-3">
-                                <p className="text-[11px] text-green-600 mb-2">New Images to Upload ({selectedImages.length}):</p>
-                                <div className="grid grid-cols-3 gap-2">
-                                  {selectedImages.map((img, idx) => (
-                                    <div key={idx} className="relative border border-green-300 bg-green-50">
-                                      <img 
-                                        src={URL.createObjectURL(img)} 
-                                        alt="New" 
-                                        className="w-full h-20 object-cover"
-                                      />
-                                      <button 
-                                        type="button"
-                                        onClick={() => removeNewImage(idx, "gallery")}
-                                        className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white text-[10px] flex items-center justify-center rounded-full"
-                                      >
-                                        <X className="w-2.5 h-2.5" />
-                                      </button>
-                                      <div className="p-1 text-[9px] truncate">{img.name}</div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Upload Button */}
-                            <div>
-                              <label className="flex items-center justify-center h-10 border border-gray-300 bg-gray-50 text-[12px] cursor-pointer hover:bg-gray-100">
-                                <Plus className="w-3 h-3 mr-1" />
-                                Add More Images to Gallery
-                                <input 
-                                  type="file" 
-                                  accept="image/*" 
-                                  multiple 
-                                  className="hidden" 
-                                  onChange={(e) => handleImageUpload(e, "gallery")}
-                                />
-                              </label>
-                              <p className="text-[10px] text-gray-500 mt-1">
-                                Max {20 - (existingImages.length + selectedImages.length)} more, 5MB each
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Video URL */}
-                        <div>
-                          <label className={`${labelCls} block mb-1`}>Video URL (YouTube)</label>
-                          <input 
-                            className={fieldCls}
-                            value={formData.video_url || ""} 
-                            onChange={(e) => handleChange("video_url", e.target.value)}
-                            placeholder="https://youtube.com/embed/..."
+                        <label className="flex items-center justify-center h-9 border border-dashed border-gray-400 bg-gray-50 hover:bg-gray-100 cursor-pointer text-sm text-gray-600 rounded">
+                          <Plus className="w-4 h-4 mr-1" />
+                          Add Gallery Images
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={(e) => handleImageUpload(e, "gallery")}
+                            className="hidden"
                           />
-                        </div>
+                        </label>
+                      </div>
+                    </div>
 
-                        {/* WhatsApp URL */}
-                        <div>
-                          <label className={`${labelCls} block mb-1`}>WhatsApp URL</label>
-                          <input 
-                            className={fieldCls}
-                            value={formData.whatsapp_url || ""} 
-                            onChange={(e) => handleChange("whatsapp_url", e.target.value)}
-                            placeholder="https://wa.me/..."
-                          />
+                    {/* Quick Actions */}
+                    <div className={boxCls}>
+                      <div className={boxHeaderCls}>Quick Actions</div>
+                      <div className={boxBodyCls}>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={copyFormData}
+                            className="h-9 border border-gray-300 bg-white text-sm rounded hover:bg-gray-50 flex items-center justify-center gap-1"
+                          >
+                            <Copy className="w-4 h-4" />
+                            Copy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={resetForm}
+                            className="h-9 border border-gray-300 bg-white text-sm rounded hover:bg-gray-50 flex items-center justify-center gap-1"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            Reset
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => window.open(`/admin/projects`, "_self")}
+                            className="h-9 border border-gray-300 bg-white text-sm rounded hover:bg-gray-50 flex items-center justify-center gap-1"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            List
+                          </button>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* SEO Checklist */}
-                  <div className={boxCls}>
-                    <div className={boxHeaderCls}>SEO Checklist</div>
-                    <div className={boxBodyCls}>
-                      <SeoChecklist formData={formData} />
+                  {/* RIGHT COLUMN */}
+                  <div className="col-span-12 md:col-span-8 space-y-3">
+                    {/* Listing Type + Property Type */}
+                    <div className={boxCls}>
+                      <div className={boxBodyCls}>
+                        <div className="text-sm font-semibold text-gray-800 mb-2">
+                          Listing Type <span className="text-red-500">*</span>
+                        </div>
+                        <div className="flex flex-wrap gap-4 text-sm text-gray-800">
+                          {[
+                            ["sale", "For Sale"],
+                            ["rent", "For Rent"],
+                            ["Off plan", "Off Plan"],
+                            ["Ready", "Ready"],
+                          ].map(([val, label]) => (
+                            <label key={val} className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name="listing_type"
+                                checked={formData.listing_type === val}
+                                onChange={() => handleChange("listing_type", val)}
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+
+                        <div className="mt-4 text-sm font-semibold text-gray-800 mb-2">
+                          Property Type <span className="text-red-500">*</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            "Apartment", "Villa", "Townhouse",
+                            "Penthouse", "Duplex", "Hotel Apartment",
+                            "Commercial", "Office", "Mixed Use",
+                          ].map((type) => (
+                            <label key={type} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="radio"
+                                name="property_type"
+                                checked={formData.property_type === type}
+                                onChange={() => handleChange("property_type", type)}
+                              />
+                              {type}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Location Section */}
+                    <div className={boxCls}>
+                      <div className={boxHeaderCls}>Location Details</div>
+                      <div className={boxBodyCls}>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>City Name</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.CityName || ""}
+                              onChange={(e) => handleChange("CityName", e.target.value)}
+                              placeholder="Dubai"
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>State Name</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.StateName || ""}
+                              onChange={(e) => handleChange("StateName", e.target.value)}
+                              placeholder="Dubai"
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Location Name</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.LocationName || ""}
+                              onChange={(e) => handleChange("LocationName", e.target.value)}
+                              placeholder="Dubai Marina"
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Building Name</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.BuildingName || ""}
+                              onChange={(e) => handleChange("BuildingName", e.target.value)}
+                              placeholder="Marina Heights"
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Street Name</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.StreetName || ""}
+                              onChange={(e) => handleChange("StreetName", e.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Landmark</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.LandMark || ""}
+                              onChange={(e) => handleChange("LandMark", e.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Pin Code</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.PinCode || ""}
+                              onChange={(e) => handleChange("PinCode", e.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Country</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.country || ""}
+                              onChange={(e) => handleChange("country", e.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Coordinates (SPECS FIELDS) */}
+                        <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t border-gray-200">
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>
+                              Latitude <span className="text-xs text-blue-600">(Specs)</span>
+                            </label>
+                            <input
+                              className={fieldCls}
+                              value={formData.Latitude || ""}
+                              onChange={(e) => handleChange("Latitude", e.target.value)}
+                              placeholder="25.0772"
+                            />
+                          </div>
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>
+                              Longitude <span className="text-xs text-blue-600">(Specs)</span>
+                            </label>
+                            <input
+                              className={fieldCls}
+                              value={formData.Longitude || ""}
+                              onChange={(e) => handleChange("Longitude", e.target.value)}
+                              placeholder="55.1095"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Description with SimpleTextEditor */}
+                    <div className={boxCls}>
+                      <div className={boxHeaderCls}>
+                        Description <span className="text-red-500">*</span>
+                      </div>
+                      <div className={boxBodyCls}>
+                        <div className={`${errors.Description && touched.Description ? "ring-1 ring-red-400 rounded" : ""}`}>
+                          <SimpleTextEditor
+                            value={formData.Description || ""}
+                            onChange={handleDescriptionChange}
+                            placeholder="Write detailed project description... (minimum 50 words recommended)"
+                            minHeight="200px"
+                          />
+                        </div>
+                        <div className="flex justify-between mt-2">
+                          <span className="text-xs text-gray-500">Words: {descriptionWordCount}</span>
+                          <span className={`text-xs ${descriptionWordCount < 50 ? "text-amber-600" : "text-green-600"}`}>
+                            {descriptionWordCount < 50 ? `Minimum 50 words recommended (${50 - descriptionWordCount} more needed)` : "Good length!"}
+                          </span>
+                        </div>
+                        {errors.Description && touched.Description && (
+                          <span className="text-xs text-red-500">{errors.Description}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Specifications */}
+                    <div className={boxCls}>
+                      <div className={boxHeaderCls}>Specifications</div>
+                      <div className={boxBodyCls}>
+                        <SimpleTextEditor
+                          value={formData.Specifications || ""}
+                          onChange={(content) => handleChange("Specifications", content)}
+                          placeholder="Technical specifications, construction details..."
+                          minHeight="150px"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Amenities */}
+                    <div className={boxCls}>
+                      <div className={boxHeaderCls}>Project Amenities</div>
+                      <div className={boxBodyCls}>
+                        <div className="grid grid-cols-3 gap-3">
+                          {AMENITY_FIELDS.map(({ key, label }) => (
+                            <label key={key} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={formData[key] === 1}
+                                onChange={(e) => handleChange(key, e.target.checked ? 1 : 0)}
+                                className="w-3.5 h-3.5 rounded"
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+
+                        <div className="mt-4">
+                          <label className={`${labelCls} block mb-2`}>
+                            Additional Amenities (comma separated)
+                          </label>
+                          <textarea
+                            className="w-full border border-gray-300 bg-white px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded"
+                            rows={2}
+                            value={formData.amenities || ""}
+                            onChange={(e) => handleChange("amenities", e.target.value)}
+                            placeholder="Jogging Track, Kids Pool, BBQ Area..."
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* SEO */}
+                    <div className={boxCls}>
+                      <div className={boxHeaderCls}>SEO</div>
+                      <div className={boxBodyCls}>
+                        <div className="space-y-2">
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>SEO Title</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.seo_title || ""}
+                              onChange={(e) => handleChange("seo_title", e.target.value)}
+                              placeholder="Meta Title"
+                            />
+                          </div>
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Meta Description</label>
+                            <textarea
+                              className="w-full h-16 border border-gray-300 bg-white px-2 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 rounded"
+                              value={formData.meta_description || ""}
+                              onChange={(e) => handleChange("meta_description", e.target.value)}
+                              placeholder="Meta Description"
+                            />
+                          </div>
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Keywords</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.keyword || ""}
+                              onChange={(e) => handleChange("keyword", e.target.value)}
+                              placeholder="keyword1, keyword2"
+                            />
+                          </div>
+                          <div>
+                            <label className={`${labelCls} block mb-1`}>Canonical Tags</label>
+                            <input
+                              className={fieldCls}
+                              value={formData.canonical_tags || ""}
+                              onChange={(e) => handleChange("canonical_tags", e.target.value)}
+                              placeholder="Canonical URL"
+                            />
+                          </div>
+                        </div>
+                        <SeoChecklist formData={formData} />
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </form>
             </div>
           </div>
 
-          {/* Second Row: Description & Specifications */}
-          <div className="mt-3 border border-gray-300 bg-white">
-            <div className={boxHeaderCls}>Description & Specifications</div>
-            <div className={boxBodyCls}>
-              <div className="grid grid-cols-12 gap-3">
-                {/* Description */}
-                <div className="col-span-12 md:col-span-6">
-                  <label className={`${labelRequiredCls} block mb-1`}>Description</label>
-                  <textarea 
-                    className={`w-full h-48 border ${errors.Description && touched.Description ? 'border-red-400 bg-red-50' : 'border-gray-300'} p-2 text-[12px] outline-none focus:border-gray-500`}
-                    value={formData.Description || ""} 
-                    onChange={(e) => handleChange("Description", e.target.value)}
-                    onBlur={() => handleBlur("Description")}
-                    placeholder="Enter detailed project description (minimum 50 words)..."
-                  />
-                  {errors.Description && touched.Description && (
-                    <span className="text-[10px] text-red-500">{errors.Description}</span>
-                  )}
-                  <div className="text-[11px] text-gray-500 mt-1">
-                    Word Count: {formData.Description ? formData.Description.split(/\s+/).filter(Boolean).length : 0} words
-                  </div>
-                </div>
+          {/* Footer bar */}
+          <div className="mt-3 bg-white border border-gray-300 p-3 rounded-b flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => (window.location.href = "/admin/projects")}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
+            >
+              Cancel
+            </button>
 
-                {/* Specifications */}
-                <div className="col-span-12 md:col-span-6">
-                  <label className={`${labelCls} block mb-1`}>Specifications</label>
-                  <textarea 
-                    className="w-full h-48 border border-gray-300 p-2 text-[12px] outline-none focus:border-gray-500"
-                    value={formData.Specifications || ""} 
-                    onChange={(e) => handleChange("Specifications", e.target.value)}
-                    placeholder="Enter project specifications..."
-                  />
-                  <div className="text-[11px] text-gray-500 mt-1">
-                    Add bullet points or detailed specs
-                  </div>
-                </div>
+            <div className="flex items-center gap-3">
+              {hasChanges && (
+                <span className="text-xs text-amber-600">You have unsaved changes</span>
+              )}
+              <div className="text-xs text-gray-500">
+                {REQUIRED_FIELDS.filter(({ field }) => {
+                  if (field === "Description") {
+                    return descriptionWordCount < 50;
+                  }
+                  return !formData[field];
+                }).length} required fields remaining
               </div>
-            </div>
-          </div>
-
-          {/* Third Row: Amenities */}
-          <div className="mt-3 border border-gray-300 bg-white">
-            <div className={boxHeaderCls}>Amenities</div>
-            <div className={boxBodyCls}>
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {AMENITY_FIELDS.map(({ key, label }) => (
-                  <label key={key} className="flex items-center gap-2 text-[12px] cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={formData[key] === 1}
-                      onChange={(e) => handleChange(key, e.target.checked ? 1 : 0)}
-                      className="w-3.5 h-3.5"
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-              
-              {/* Additional Amenities Text */}
-              <div className="mt-3">
-                <label className={`${labelCls} block mb-1`}>Additional Amenities (comma separated)</label>
-                <input 
-                  className={fieldCls}
-                  value={formData.amenities || ""} 
-                  onChange={(e) => handleChange("amenities", e.target.value)}
-                  placeholder="e.g., Spa, Concierge, Business Center"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Fourth Row: SEO Fields */}
-          <div className="mt-3 border border-gray-300 bg-white">
-            <div className={boxHeaderCls}>SEO Fields</div>
-            <div className={boxBodyCls}>
-              <div className="grid grid-cols-12 gap-3">
-                <div className="col-span-12 md:col-span-6 space-y-2">
-                  <div>
-                    <label className={`${labelCls} block mb-1`}>SEO Title</label>
-                    <input 
-                      className={fieldCls}
-                      value={formData.seo_title || ""} 
-                      onChange={(e) => handleChange("seo_title", e.target.value)}
-                      placeholder="Optimal length: 50-60 characters"
-                    />
-                    <div className="text-[11px] text-gray-500 mt-1">
-                      Length: {formData.seo_title?.length || 0} characters
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className={`${labelCls} block mb-1`}>Keywords</label>
-                    <input 
-                      className={fieldCls}
-                      value={formData.keyword || ""} 
-                      onChange={(e) => handleChange("keyword", e.target.value)}
-                      placeholder="Comma separated keywords"
-                    />
-                  </div>
-                </div>
-
-                <div className="col-span-12 md:col-span-6">
-                  <label className={`${labelCls} block mb-1`}>Meta Description</label>
-                  <textarea 
-                    className="w-full h-32 border border-gray-300 p-2 text-[12px] outline-none focus:border-gray-500"
-                    value={formData.meta_description || ""} 
-                    onChange={(e) => handleChange("meta_description", e.target.value)}
-                    placeholder="Optimal length: 150-160 characters"
-                  />
-                  <div className="text-[11px] text-gray-500 mt-1">
-                    Length: {formData.meta_description?.length || 0} characters
-                  </div>
-                </div>
-
-                <div className="col-span-12">
-                  <label className={`${labelCls} block mb-1`}>Canonical Tags</label>
-                  <input 
-                    className={fieldCls}
-                    value={formData.canonical_tags || ""} 
-                    onChange={(e) => handleChange("canonical_tags", e.target.value)}
-                    placeholder="Canonical URL tags"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={resetForm}
-                disabled={!hasChanges}
-                className="h-9 px-4 border border-gray-300 bg-white text-[12px] hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Discard Changes
-              </button>
-              
-              <button
-                type="button"
-                onClick={copyFormData}
-                className="h-9 px-4 border border-gray-300 bg-white text-[12px] hover:bg-gray-50 flex items-center gap-1"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Copy Data
-              </button>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => router.push("/admin/projects")}
-                className="h-9 px-4 border border-gray-300 bg-white text-[12px] hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={saving || !hasChanges}
-                className="h-9 px-4 bg-blue-600 text-white text-[12px] hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                disabled={saving}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50"
               >
                 {saving ? (
                   <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Saving...
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Updating...
                   </>
                 ) : (
                   <>
-                    <Save className="w-3.5 h-3.5" />
+                    <Save className="w-4 h-4" />
                     Update Project
                   </>
                 )}
               </button>
             </div>
           </div>
-
-          {/* Save Status Indicator */}
-          {saving && (
-            <div className="mt-3 p-2 bg-blue-50 border border-blue-200 text-[12px] text-blue-700 flex items-center gap-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Updating project data...
-            </div>
-          )}
-
-          {/* Unsaved Changes Warning */}
-          {hasChanges && !saving && (
-            <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 text-[12px] text-yellow-700">
-              You have unsaved changes. Please save or discard them before leaving.
-            </div>
-          )}
         </div>
       </div>
     </>

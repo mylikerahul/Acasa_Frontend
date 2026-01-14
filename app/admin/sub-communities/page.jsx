@@ -1,81 +1,154 @@
 "use client";
 
-import React, {
-  useState,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-} from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { X, Loader2, Trash2, Edit, Eye, RefreshCw, Plus, Search, ChevronLeft, ChevronRight } from "lucide-react";
-import { toast } from "react-hot-toast";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  X,
+  Loader2,
+  Trash2,
+  Edit3,
+  Eye,
+  RefreshCw,
+  Plus,
+  Search,
+  ChevronDown,
+  MapPin,
+  AlertCircle,
+  Image as ImageIcon,
+  Building,
+  Compass,
+} from "lucide-react";
+import { Toaster, toast } from "react-hot-toast";
 import TextEditor from "../../components/common/SimpleTextEditor";
-import AdminNavbar from "../dashboard/header/DashboardNavbar"; // ✅ Same import as Agent page
-import { getAdminToken, removeAdminToken } from "../../../utils/auth";
-import Link from "next/link";
+import AdminNavbar from "../dashboard/header/DashboardNavbar";
+import {
+  getAdminToken,
+  isAdminTokenValid,
+  getCurrentSessionType,
+  logoutAll,
+} from "../../../utils/auth";
 
-// ─────────────────────────────────────────────────────────────
-// Constants & Configuration
-// ─────────────────────────────────────────────────────────────
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
+// ==================== CONSTANTS ====================
 const COUNTRIES = [
-  "United Arab Emirates",
-  "Saudi Arabia",
-  "Qatar",
-  "Bahrain",
-  "Kuwait",
-  "Oman",
+  { id: 1, name: "United Arab Emirates" },
+  { id: 2, name: "Saudi Arabia" },
+  { id: 3, name: "Qatar" },
+  { id: 4, name: "Bahrain" },
+  { id: 5, name: "Kuwait" },
+  { id: 6, name: "Oman" },
 ];
 
 const UAE_CITIES = [
-  "Dubai",
-  "Abu Dhabi",
-  "Sharjah",
-  "Ajman",
-  "Ras Al Khaimah",
-  "Fujairah",
-  "Umm Al Quwain",
+  { id: 1, name: "Dubai" },
+  { id: 2, name: "Abu Dhabi" },
+  { id: 3, name: "Sharjah" },
+  { id: 4, name: "Ajman" },
+  { id: 5, name: "Ras Al Khaimah" },
+  { id: 6, name: "Fujairah" },
+  { id: 7, name: "Umm Al Quwain" },
 ];
 
-const SLIDER_TYPES = ["image", "video"];
-const STATUS_OPTIONS = ["active", "inactive"];
-
-const ALLOWED_IMAGE_TYPES = [
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-  "image/gif",
+const DIRECTIONS = [
+  { value: "", label: "Select Direction" },
+  { value: "North", label: "North" },
+  { value: "South", label: "South" },
+  { value: "East", label: "East" },
+  { value: "West", label: "West" },
+  { value: "North-East", label: "North-East" },
+  { value: "North-West", label: "North-West" },
+  { value: "South-East", label: "South-East" },
+  { value: "South-West", label: "South-West" },
+  { value: "Central", label: "Central" },
 ];
-const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/ogg"];
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+
+const STATUS_OPTIONS = [
+  { value: "active", label: "Active", color: "bg-green-100 text-green-800" },
+  { value: "inactive", label: "Inactive", color: "bg-red-100 text-red-800" },
+];
+
+const ALL_COLUMNS = [
+  { id: "id", label: "ID" },
+  { id: "image", label: "Image" },
+  { id: "name", label: "Name" },
+  { id: "community", label: "Community" },
+  { id: "city", label: "City" },
+  { id: "direction", label: "Direction" },
+  { id: "description", label: "Description" },
+  { id: "status", label: "Status" },
+];
+
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 
 const INITIAL_FORM_STATE = {
-  country: "United Arab Emirates",
-  city: "Dubai",
+  country_id: 1,
+  city_id: 1,
+  community_id: "",
+  direction: "",
   name: "",
   longitude: "",
   latitude: "",
-  slider_type: "image",
   seo_title: "",
   seo_description: "",
-  focus_keyword: "",
+  seo_keyword: "",
   description: "",
   status: "active",
+  top_community: false,
 };
 
 const INITIAL_MODAL_STATE = {
-  city: "",
-  communityName: "",
+  community_id: "",
+  name: "",
 };
 
-// ─────────────────────────────────────────────────────────────
-// Utility Functions
-// ─────────────────────────────────────────────────────────────
+// ==================== TOAST HELPERS ====================
+const showSuccess = (message) => {
+  toast.success(message, {
+    duration: 3000,
+    position: "top-right",
+    style: {
+      background: '#10B981',
+      color: '#fff',
+      fontWeight: '500',
+    },
+    iconTheme: {
+      primary: '#fff',
+      secondary: '#10B981',
+    },
+  });
+};
+
+const showError = (message) => {
+  toast.error(message, {
+    duration: 4000,
+    position: "top-right",
+    style: {
+      background: '#EF4444',
+      color: '#fff',
+      fontWeight: '500',
+    },
+    iconTheme: {
+      primary: '#fff',
+      secondary: '#EF4444',
+    },
+  });
+};
+
+const showLoading = (message) => {
+  return toast.loading(message, {
+    position: "top-right",
+  });
+};
+
+// ==================== FAST NAVIGATION ====================
+const fastNavigate = (url) => {
+  if (typeof window !== "undefined") {
+    window.location.href = url;
+  }
+};
+
+// ==================== UTILITY FUNCTIONS ====================
 const stripHtml = (html) => {
   if (!html) return "";
   return html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
@@ -84,6 +157,17 @@ const stripHtml = (html) => {
 const truncateText = (str, maxLength = 120) => {
   if (!str) return "";
   return str.length > maxLength ? `${str.slice(0, maxLength)}...` : str;
+};
+
+const normalizeStatus = (status) => {
+  if (status === 1 || status === "1" || status === "active" || status === true) {
+    return "active";
+  }
+  return "inactive";
+};
+
+const isStatusActive = (status) => {
+  return status === 1 || status === "1" || status === "active" || status === true;
 };
 
 const createAuthHeaders = (includeJson = false) => {
@@ -95,28 +179,35 @@ const createAuthHeaders = (includeJson = false) => {
   return headers;
 };
 
-const validateFile = (file, type) => {
-  const isImage = type === "image";
-  const allowedTypes = isImage ? ALLOWED_IMAGE_TYPES : ALLOWED_VIDEO_TYPES;
-  const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE;
-  const typeLabel = isImage ? "image" : "video";
-
-  if (!allowedTypes.includes(file.type)) {
-    const extensions = allowedTypes.map((t) => t.split("/")[1]).join(", ");
-    return { valid: false, error: `Invalid ${typeLabel} type. Allowed: ${extensions}` };
+const validateFile = (file) => {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    const extensions = ALLOWED_IMAGE_TYPES.map((t) => t.split("/")[1]).join(", ");
+    return { valid: false, error: `Invalid image type. Allowed: ${extensions}` };
   }
-
-  if (file.size > maxSize) {
-    const sizeMB = maxSize / (1024 * 1024);
-    return { valid: false, error: `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} size must be less than ${sizeMB}MB` };
+  if (file.size > MAX_IMAGE_SIZE) {
+    const sizeMB = MAX_IMAGE_SIZE / (1024 * 1024);
+    return { valid: false, error: `Image size must be less than ${sizeMB}MB` };
   }
-
   return { valid: true, error: null };
 };
 
-// ─────────────────────────────────────────────────────────────
-// Custom Hooks
-// ─────────────────────────────────────────────────────────────
+const getImageUrl = (imagePath) => {
+  if (!imagePath) return null;
+  if (imagePath.startsWith("http")) return imagePath;
+  return `${API_BASE_URL}/uploads/${imagePath}`;
+};
+
+const getCityName = (cityId) => {
+  const city = UAE_CITIES.find((c) => c.id === parseInt(cityId));
+  return city ? city.name : "Unknown";
+};
+
+const getCountryName = (countryId) => {
+  const country = COUNTRIES.find((c) => c.id === parseInt(countryId));
+  return country ? country.name : "Unknown";
+};
+
+// ==================== CUSTOM HOOKS ====================
 const useDebounce = (value, delay = 300) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
@@ -128,100 +219,91 @@ const useDebounce = (value, delay = 300) => {
   return debouncedValue;
 };
 
-const useFileUpload = (onTypeChange) => {
+const useFileUpload = () => {
   const [imageFile, setImageFile] = useState(null);
-  const [videoFile, setVideoFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  const [videoPreview, setVideoPreview] = useState(null);
 
-  const handleImageChange = useCallback(
-    (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
+  const handleImageChange = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-      const validation = validateFile(file, "image");
-      if (!validation.valid) {
-        toast.error(validation.error);
-        return;
-      }
+    const validation = validateFile(file);
+    if (!validation.valid) {
+      showError(validation.error);
+      return;
+    }
 
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-      onTypeChange?.("image");
-    },
-    [onTypeChange]
-  );
-
-  const handleVideoChange = useCallback(
-    (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      const validation = validateFile(file, "video");
-      if (!validation.valid) {
-        toast.error(validation.error);
-        return;
-      }
-
-      setVideoFile(file);
-      setVideoPreview(URL.createObjectURL(file));
-      onTypeChange?.("video");
-    },
-    [onTypeChange]
-  );
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  }, []);
 
   const clearImage = useCallback(() => {
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    if (imagePreview && imagePreview.startsWith("blob:")) {
+      URL.revokeObjectURL(imagePreview);
+    }
     setImageFile(null);
     setImagePreview(null);
   }, [imagePreview]);
 
-  const clearVideo = useCallback(() => {
-    if (videoPreview) URL.revokeObjectURL(videoPreview);
-    setVideoFile(null);
-    setVideoPreview(null);
-  }, [videoPreview]);
-
   const resetFiles = useCallback(() => {
     clearImage();
-    clearVideo();
-  }, [clearImage, clearVideo]);
+  }, [clearImage]);
 
-  const setPreviewsFromCommunity = useCallback((community) => {
-    setImagePreview(community?.image_url || null);
-    setVideoPreview(community?.video_url || null);
+  const setPreviewsFromData = useCallback((data) => {
+    setImagePreview(data?.img ? getImageUrl(data.img) : null);
     setImageFile(null);
-    setVideoFile(null);
   }, []);
 
   useEffect(() => {
     return () => {
-      if (imagePreview) URL.revokeObjectURL(imagePreview);
-      if (videoPreview) URL.revokeObjectURL(videoPreview);
+      if (imagePreview && imagePreview.startsWith("blob:")) {
+        URL.revokeObjectURL(imagePreview);
+      }
     };
   }, []);
 
   return {
     imageFile,
-    videoFile,
     imagePreview,
-    videoPreview,
     handleImageChange,
-    handleVideoChange,
     clearImage,
-    clearVideo,
     resetFiles,
-    setPreviewsFromCommunity,
+    setPreviewsFromData,
   };
 };
 
-const useCommunityApi = () => {
+// ==================== API HOOK ====================
+const useSubCommunityApi = () => {
   const [loading, setLoading] = useState(false);
+  const [subCommunities, setSubCommunities] = useState([]);
   const [communities, setCommunities] = useState([]);
-  const [pagination, setPagination] = useState({});
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalItems: 0,
+    limit: 10,
+  });
   const abortControllerRef = useRef(null);
 
-  const fetchCommunities = useCallback(async (page = 1, limit = 10) => {
+  // Fetch communities for dropdown
+  const fetchCommunities = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/communities/dropdown`, {
+        method: "GET",
+        headers: createAuthHeaders(),
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        setCommunities(data.data || []);
+      }
+    } catch (error) {
+      console.error("Fetch communities error:", error);
+    }
+  }, []);
+
+  // Fetch sub-communities
+  const fetchSubCommunities = useCallback(async (page = 1, limit = 10, filters = {}) => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -229,27 +311,38 @@ const useCommunityApi = () => {
 
     setLoading(true);
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/communities?page=${page}&limit=${limit}`,
-        {
-          method: "GET",
-          headers: createAuthHeaders(),
-          signal: abortControllerRef.current.signal,
-        }
-      );
+      let url = `${API_BASE_URL}/api/v1/sub-communities?page=${page}&limit=${limit}`;
+
+      if (filters.status) url += `&status=${filters.status}`;
+      if (filters.community_id) url += `&community_id=${filters.community_id}`;
+      if (filters.city_id) url += `&city_id=${filters.city_id}`;
+      if (filters.search) url += `&search=${encodeURIComponent(filters.search)}`;
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers: createAuthHeaders(),
+        signal: abortControllerRef.current.signal,
+      });
+
       const data = await response.json();
 
       if (data.success) {
-        setCommunities(data.data || []);
-        setPagination(data.pagination || {});
+        setSubCommunities(data.data || []);
+        setPagination({
+          currentPage: data.pagination?.page || 1,
+          totalPages: data.pagination?.totalPages || 1,
+          totalItems: data.pagination?.total || 0,
+          limit: data.pagination?.limit || 10,
+        });
         return { success: true };
       } else {
-        toast.error(data.message || "Failed to fetch communities");
+        showError(data.message || "Failed to fetch sub-communities");
         return { success: false };
       }
     } catch (error) {
       if (error.name !== "AbortError") {
-        toast.error("Failed to fetch communities");
+        console.error("Fetch error:", error);
+        showError("Failed to fetch sub-communities");
       }
       return { success: false };
     } finally {
@@ -257,32 +350,32 @@ const useCommunityApi = () => {
     }
   }, []);
 
-  const fetchCommunityById = useCallback(async (id) => {
+  // Fetch by ID
+  const fetchSubCommunityById = useCallback(async (id) => {
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/communities/${id}`,
-        {
-          method: "GET",
-          headers: createAuthHeaders(),
-        }
-      );
+      const response = await fetch(`${API_BASE_URL}/api/v1/sub-communities/${id}`, {
+        method: "GET",
+        headers: createAuthHeaders(),
+      });
       const data = await response.json();
 
       if (data.success) {
         return { success: true, data: data.data };
       } else {
-        toast.error(data.message || "Failed to load community");
+        showError(data.message || "Failed to load sub-community");
         return { success: false };
       }
-    } catch {
-      toast.error("Failed to load community");
+    } catch (error) {
+      console.error("Fetch by ID error:", error);
+      showError("Failed to load sub-community");
       return { success: false };
     }
   }, []);
 
-  const createCommunity = useCallback(async (formData) => {
+  // Create
+  const createSubCommunity = useCallback(async (formData) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/communities`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/sub-communities`, {
         method: "POST",
         headers: { Authorization: `Bearer ${getAdminToken()}` },
         body: formData,
@@ -290,88 +383,110 @@ const useCommunityApi = () => {
       const data = await response.json();
 
       if (data.success) {
-        toast.success("Community created successfully!");
+        showSuccess("Sub-Community created successfully!");
         return { success: true, data: data.data };
       } else {
-        toast.error(data.message || "Failed to create community");
+        showError(data.message || "Failed to create sub-community");
         return { success: false };
       }
-    } catch {
-      toast.error("Failed to create community");
+    } catch (error) {
+      console.error("Create error:", error);
+      showError("Failed to create sub-community");
       return { success: false };
     }
   }, []);
 
-  const updateCommunity = useCallback(async (id, formData) => {
+  // Update
+  const updateSubCommunity = useCallback(async (id, formData) => {
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/communities/${id}`,
-        {
-          method: "PUT",
-          headers: { Authorization: `Bearer ${getAdminToken()}` },
-          body: formData,
-        }
-      );
+      const response = await fetch(`${API_BASE_URL}/api/v1/sub-communities/${id}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${getAdminToken()}` },
+        body: formData,
+      });
       const data = await response.json();
 
       if (data.success) {
-        toast.success("Community updated successfully!");
+        showSuccess("Sub-Community updated successfully!");
         return { success: true, data: data.data };
       } else {
-        toast.error(data.message || "Failed to update community");
+        showError(data.message || "Failed to update sub-community");
         return { success: false };
       }
-    } catch {
-      toast.error("Failed to update community");
+    } catch (error) {
+      console.error("Update error:", error);
+      showError("Failed to update sub-community");
       return { success: false };
     }
   }, []);
 
-  const deleteCommunity = useCallback(async (id) => {
+  // Delete
+  const deleteSubCommunity = useCallback(async (id) => {
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/communities/${id}`,
-        {
-          method: "DELETE",
-          headers: createAuthHeaders(),
-        }
-      );
+      const response = await fetch(`${API_BASE_URL}/api/v1/sub-communities/${id}`, {
+        method: "DELETE",
+        headers: createAuthHeaders(),
+      });
       const data = await response.json();
 
       if (data.success) {
-        toast.success("Community deleted successfully!");
+        showSuccess("Sub-Community deleted successfully!");
         return { success: true };
       } else {
-        toast.error(data.message || "Failed to delete community");
+        showError(data.message || "Failed to delete sub-community");
         return { success: false };
       }
-    } catch {
-      toast.error("Failed to delete community");
+    } catch (error) {
+      console.error("Delete error:", error);
+      showError("Failed to delete sub-community");
       return { success: false };
     }
   }, []);
 
+  // Update status
   const updateStatus = useCallback(async (id, newStatus) => {
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/admin/communities/${id}/status`,
-        {
-          method: "PATCH",
-          headers: createAuthHeaders(true),
-          body: JSON.stringify({ status: newStatus }),
-        }
-      );
+      const response = await fetch(`${API_BASE_URL}/api/v1/sub-communities/${id}/status`, {
+        method: "PATCH",
+        headers: createAuthHeaders(true),
+        body: JSON.stringify({ status: newStatus }),
+      });
       const data = await response.json();
 
       if (data.success) {
-        toast.success(`Status updated to ${newStatus}`);
+        showSuccess(`Status updated to ${newStatus}`);
         return { success: true };
       } else {
-        toast.error(data.message || "Failed to update status");
+        showError(data.message || "Failed to update status");
         return { success: false };
       }
-    } catch {
-      toast.error("Failed to update status");
+    } catch (error) {
+      console.error("Status update error:", error);
+      showError("Failed to update status");
+      return { success: false };
+    }
+  }, []);
+
+  // Bulk delete
+  const bulkDelete = useCallback(async (ids) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/sub-communities/bulk/delete`, {
+        method: "POST",
+        headers: createAuthHeaders(true),
+        body: JSON.stringify({ ids }),
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        showSuccess(`${ids.length} sub-communities deleted successfully!`);
+        return { success: true };
+      } else {
+        showError(data.message || "Failed to delete sub-communities");
+        return { success: false };
+      }
+    } catch (error) {
+      console.error("Bulk delete error:", error);
+      showError("Failed to delete sub-communities");
       return { success: false };
     }
   }, []);
@@ -386,590 +501,500 @@ const useCommunityApi = () => {
 
   return {
     loading,
+    subCommunities,
     communities,
     pagination,
     fetchCommunities,
-    fetchCommunityById,
-    createCommunity,
-    updateCommunity,
-    deleteCommunity,
+    fetchSubCommunities,
+    fetchSubCommunityById,
+    createSubCommunity,
+    updateSubCommunity,
+    deleteSubCommunity,
     updateStatus,
+    bulkDelete,
   };
 };
 
-// ─────────────────────────────────────────────────────────────
-// Sub Components
-// ─────────────────────────────────────────────────────────────
-const MediaThumbnail = React.memo(({ community }) => {
-  const { slider_type, image_url, video_url, name } = community || {};
+// ==================== SUB COMPONENTS ====================
+const SubCommunityImage = React.memo(({ src, alt, className = "" }) => {
+  const [imageError, setImageError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(true);
 
-  if (slider_type === "video" && video_url) {
+  if (!src || imageError) {
     return (
-      <div className="relative w-32 h-18 overflow-hidden rounded border border-gray-300 bg-black">
-        <video src={video_url} className="w-full h-full object-cover" muted />
-        <span className="absolute bottom-0 left-0 m-0.5 px-1 py-px text-[9px] bg-black/70 text-white rounded">
-          Video
-        </span>
-      </div>
-    );
-  }
-
-  if (image_url) {
-    return (
-      <div className="relative w-32 h-18 overflow-hidden rounded border border-gray-300 bg-gray-100">
-        <img
-          src={image_url}
-          alt={name || "Community"}
-          className="w-full h-full object-cover"
-          loading="lazy"
-        />
-        <span className="absolute bottom-0 left-0 m-0.5 px-1 py-px text-[9px] bg-black/60 text-white rounded">
-          Image
-        </span>
+      <div className={`w-full h-full flex items-center justify-center bg-gray-100 ${className}`}>
+        <ImageIcon className="w-6 h-6 text-gray-400" />
       </div>
     );
   }
 
   return (
-    <span className="text-[11px] text-gray-400 whitespace-nowrap">
-      No media
-    </span>
+    <div className={`relative w-full h-full ${className}`}>
+      {imageLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+        </div>
+      )}
+      <img
+        src={getImageUrl(src)}
+        alt={alt || "Sub-Community"}
+        className={`w-full h-full object-cover transition-opacity duration-200 ${imageLoading ? 'opacity-0' : 'opacity-100'}`}
+        onLoad={() => setImageLoading(false)}
+        onError={() => {
+          setImageError(true);
+          setImageLoading(false);
+        }}
+      />
+    </div>
   );
 });
 
-MediaThumbnail.displayName = "MediaThumbnail";
+SubCommunityImage.displayName = "SubCommunityImage";
 
-const StatusBadge = React.memo(({ status, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
-      status === "active"
-        ? "bg-green-100 text-green-700 hover:bg-green-200"
-        : "bg-red-100 text-red-700 hover:bg-red-200"
-    }`}
-  >
-    {status}
-  </button>
-));
-
-StatusBadge.displayName = "StatusBadge";
-
-const ActionButtons = React.memo(({ onView, onEdit, onDelete }) => (
-  <div className="flex items-center justify-center gap-1">
-    <button
-      onClick={onView}
-      className="p-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-      title="View"
-    >
-      <Eye size={12} />
-    </button>
-    <button
-      onClick={onEdit}
-      className="p-1 bg-blue-100 text-blue-600 rounded hover:bg-blue-200 transition-colors"
-      title="Edit"
-    >
-      <Edit size={12} />
-    </button>
-    <button
-      onClick={onDelete}
-      className="p-1 bg-red-100 text-red-600 rounded hover:bg-red-200 transition-colors"
-      title="Delete"
-    >
-      <Trash2 size={12} />
-    </button>
-  </div>
-));
-
-ActionButtons.displayName = "ActionButtons";
-
-const Pagination = React.memo(({ pagination, onPageChange }) => {
-  const { currentPage = 1, totalPages = 1, totalItems = 0 } = pagination;
-
-  if (totalPages <= 1) return null;
-
-  const pages = useMemo(() => {
-    const result = [];
-    const maxVisible = 5;
-    let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    let end = Math.min(totalPages, start + maxVisible - 1);
-
-    if (end - start + 1 < maxVisible) {
-      start = Math.max(1, end - maxVisible + 1);
-    }
-
-    for (let i = start; i <= end; i++) {
-      result.push(i);
-    }
-    return result;
-  }, [currentPage, totalPages]);
+// Delete Modal
+const DeleteModal = React.memo(({ isOpen, onClose, onConfirm, loading, title, message }) => {
+  if (!isOpen) return null;
 
   return (
-    <div className="flex flex-col md:flex-row md:items-center md:justify-between mt-3 text-xs gap-2">
-      <span>Total Communities: {totalItems}</span>
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage <= 1}
-          className={`px-3 py-1 rounded border flex items-center gap-1 ${
-            currentPage <= 1
-              ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-              : "bg-white hover:bg-gray-100"
-          }`}
-        >
-          <ChevronLeft size={12} />
-          Previous
-        </button>
-
-        {pages[0] > 1 && (
-          <>
-            <button
-              onClick={() => onPageChange(1)}
-              className="px-2 py-1 rounded border bg-white hover:bg-gray-100"
-            >
-              1
-            </button>
-            {pages[0] > 2 && <span className="px-1">...</span>}
-          </>
-        )}
-
-        {pages.map((page) => (
-          <button
-            key={page}
-            onClick={() => onPageChange(page)}
-            className={`px-2 py-1 rounded border ${
-              page === currentPage
-                ? "bg-blue-500 text-white border-blue-500"
-                : "bg-white hover:bg-gray-100"
-            }`}
-          >
-            {page}
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X className="w-5 h-5 text-gray-500" />
           </button>
-        ))}
-
-        {pages[pages.length - 1] < totalPages && (
-          <>
-            {pages[pages.length - 1] < totalPages - 1 && (
-              <span className="px-1">...</span>
-            )}
+        </div>
+        <div className="p-6">
+          <p className="text-gray-600 mb-6">{message}</p>
+          <div className="flex items-center gap-3 justify-end">
             <button
-              onClick={() => onPageChange(totalPages)}
-              className="px-2 py-1 rounded border bg-white hover:bg-gray-100"
+              onClick={onClose}
+              disabled={loading}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
             >
-              {totalPages}
+              Cancel
             </button>
-          </>
-        )}
-
-        <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage >= totalPages}
-          className={`px-3 py-1 rounded border flex items-center gap-1 ${
-            currentPage >= totalPages
-              ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-              : "bg-white hover:bg-gray-100"
-          }`}
-        >
-          Next
-          <ChevronRight size={12} />
-        </button>
+            <button
+              onClick={onConfirm}
+              disabled={loading}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 });
 
-Pagination.displayName = "Pagination";
+DeleteModal.displayName = "DeleteModal";
 
-const CommunityTableRow = React.memo(
-  ({ community, isSelected, onToggleSelect, onView, onEdit, onDelete, onStatusUpdate }) => (
-    <tr className="hover:bg-gray-50 transition-colors">
-      <td className="border border-gray-300 px-2 py-1.5 text-center">
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={onToggleSelect}
-          className="cursor-pointer"
-        />
-      </td>
-      <td className="border border-gray-300 px-2 py-1.5">{community.id}</td>
-      <td className="border border-gray-300 px-2 py-1.5">
-        <MediaThumbnail community={community} />
-      </td>
-      <td className="border border-gray-300 px-2 py-1.5 font-medium">
-        {community.name}
-      </td>
-      <td className="border border-gray-300 px-2 py-1.5">{community.city}</td>
-      <td className="border border-gray-300 px-2 py-1.5">{community.country}</td>
-      <td className="border border-gray-300 px-2 py-1.5 max-w-xs">
-        <span className="block text-[11px] text-gray-700">
-          {truncateText(stripHtml(community.description || ""))}
-        </span>
-      </td>
-      <td className="border border-gray-300 px-2 py-1.5">
-        <StatusBadge
-          status={community.status}
-          onClick={() =>
-            onStatusUpdate(
-              community.id,
-              community.status === "active" ? "inactive" : "active"
-            )
-          }
-        />
-      </td>
-      <td className="border border-gray-300 px-2 py-1.5">
-        <ActionButtons
-          onView={() => onView(community)}
-          onEdit={() => onEdit(community.id)}
-          onDelete={() => onDelete(community.id)}
-        />
-      </td>
-    </tr>
-  )
-);
+// View Modal
+const ViewModal = React.memo(({ subCommunity, communities, onClose }) => {
+  if (!subCommunity) return null;
 
-CommunityTableRow.displayName = "CommunityTableRow";
-
-// ─────────────────────────────────────────────────────────────
-// Modal Components
-// ─────────────────────────────────────────────────────────────
-const QuickAddModal = React.memo(
-  ({ isOpen, onClose, modalData, onModalChange, onSubmit, isLoading, variants }) => {
-    if (!isOpen) return null;
-
-    return (
-      <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-        variants={variants.overlay}
-        initial="hidden"
-        animate="show"
-        exit="exit"
-        onClick={onClose}
-      >
-        <motion.div
-          className="w-full max-w-lg bg-white rounded-sm shadow-lg border border-gray-300"
-          variants={variants.modal}
-          initial="hidden"
-          animate="show"
-          exit="exit"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="quick-add-title"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center justify-between px-4 py-2 border-b border-gray-300">
-            <h3 id="quick-add-title" className="text-sm font-semibold text-gray-800">
-              Add New Community Database
-            </h3>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              aria-label="Close"
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          <form onSubmit={onSubmit} className="px-4 py-4 space-y-3 text-xs">
-            <div>
-              <label htmlFor="modal-city" className="block mb-1 text-gray-700">
-                Select City <span className="text-red-500">*</span>
-              </label>
-              <select
-                id="modal-city"
-                value={modalData.city}
-                onChange={(e) => onModalChange("city", e.target.value)}
-                className="w-full border border-gray-300 rounded-sm px-2 py-1.5 text-xs outline-none bg-white focus:ring-1 focus:ring-blue-400"
-              >
-                <option value="">Select</option>
-                {UAE_CITIES.map((city) => (
-                  <option key={city} value={city}>
-                    {city}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="modal-community-name" className="block mb-1 text-gray-700">
-                Community Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="modal-community-name"
-                type="text"
-                value={modalData.communityName}
-                onChange={(e) => onModalChange("communityName", e.target.value)}
-                placeholder="Community Name"
-                className="w-full border border-gray-300 rounded-sm px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-400"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-200 mt-2">
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="px-4 py-1.5 text-xs font-semibold bg-[#007bff] text-white rounded-sm disabled:opacity-50 flex items-center gap-1 hover:bg-blue-600 transition-colors"
-              >
-                {isLoading && <Loader2 size={12} className="animate-spin" />}
-                Save
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-1.5 text-xs font-semibold bg-[#6f42c1] text-white rounded-sm hover:bg-purple-600 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </form>
-        </motion.div>
-      </motion.div>
-    );
-  }
-);
-
-QuickAddModal.displayName = "QuickAddModal";
-
-const ViewCommunityModal = React.memo(({ community, onClose, variants }) => {
-  if (!community) return null;
+  const statusInfo = isStatusActive(subCommunity.status) ? STATUS_OPTIONS[0] : STATUS_OPTIONS[1];
+  const community = communities.find(c => c.id === subCommunity.community_id);
 
   return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      variants={variants.overlay}
-      initial="hidden"
-      animate="show"
-      exit="exit"
-      onClick={onClose}
-    >
-      <motion.div
-        className="w-full max-w-2xl bg-white rounded-sm shadow-lg border border-gray-300 max-h-[90vh] overflow-hidden"
-        variants={variants.modal}
-        initial="hidden"
-        animate="show"
-        exit="exit"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="view-community-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-300">
-          <h3 id="view-community-title" className="text-sm font-semibold text-gray-800">
-            Community Details – {community?.name}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-            aria-label="Close"
-          >
-            <X size={16} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[90vh] overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h3 className="text-lg font-semibold text-gray-800">{subCommunity?.name}</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X className="w-5 h-5 text-gray-500" />
           </button>
         </div>
-
-        <div className="p-4 text-xs space-y-3 overflow-y-auto max-h-[80vh]">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="md:col-span-1 flex items-start justify-center">
-              <MediaThumbnail community={community} />
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="md:col-span-1">
+              <div className="w-full h-32 rounded border border-gray-200 overflow-hidden bg-gray-100">
+                <SubCommunityImage src={subCommunity?.img} alt={subCommunity?.name} />
+              </div>
             </div>
-            <div className="md:col-span-2 space-y-1">
-              <p><span className="font-semibold">ID:</span> {community?.id}</p>
-              <p><span className="font-semibold">Name:</span> {community?.name}</p>
-              <p><span className="font-semibold">City:</span> {community?.city}</p>
-              <p><span className="font-semibold">Country:</span> {community?.country}</p>
+            <div className="md:col-span-2 space-y-2 text-sm">
+              <p><span className="font-medium text-gray-600">ID:</span> {subCommunity?.id}</p>
+              <p><span className="font-medium text-gray-600">Name:</span> {subCommunity?.name}</p>
+              <p><span className="font-medium text-gray-600">Community:</span> {community?.name || 'N/A'}</p>
+              <p><span className="font-medium text-gray-600">City:</span> {getCityName(subCommunity?.city_id)}</p>
+              <p><span className="font-medium text-gray-600">Direction:</span> {subCommunity?.direction || 'N/A'}</p>
+              <p><span className="font-medium text-gray-600">Slug:</span> {subCommunity?.slug}</p>
+              {subCommunity?.latitude && subCommunity?.longitude && (
+                <p>
+                  <span className="font-medium text-gray-600">Coordinates:</span>{" "}
+                  {subCommunity.latitude}, {subCommunity.longitude}
+                </p>
+              )}
               <p>
-                <span className="font-semibold">Coordinates:</span>{" "}
-                {community?.latitude && community?.longitude
-                  ? `${community.latitude}, ${community.longitude}`
-                  : "Not specified"}
+                <span className="font-medium text-gray-600">Status:</span>{" "}
+                <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${statusInfo.color}`}>
+                  {statusInfo.label}
+                </span>
               </p>
               <p>
-                <span className="font-semibold">Status:</span>{" "}
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] ${
-                    community?.status === "active"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-red-100 text-red-700"
-                  }`}
-                >
-                  {community?.status}
-                </span>
+                <span className="font-medium text-gray-600">Top Community:</span>{" "}
+                {subCommunity?.top_community ? "Yes" : "No"}
               </p>
             </div>
           </div>
 
-          {community?.seo_title && (
-            <div className="border-t border-gray-200 pt-3">
-              <p className="font-semibold mb-1">SEO Information</p>
-              <p><span className="text-gray-600">Title:</span> {community.seo_title}</p>
-              {community.seo_description && (
-                <p><span className="text-gray-600">Description:</span> {community.seo_description}</p>
-              )}
-              {community.focus_keyword && (
-                <p><span className="text-gray-600">Focus Keyword:</span> {community.focus_keyword}</p>
-              )}
+          {subCommunity?.description && (
+            <div className="border-t pt-4 mt-4">
+              <h4 className="font-medium text-gray-800 mb-2">Description</h4>
+              <div
+                className="text-sm text-gray-600 prose prose-sm max-w-none"
+                dangerouslySetInnerHTML={{ __html: subCommunity.description }}
+              />
             </div>
           )}
 
-          <div className="border-t border-gray-200 pt-3">
-            <p className="font-semibold mb-1">Description</p>
-            {community?.description ? (
-              <div
-                className="text-[11px] leading-relaxed text-gray-800 space-y-2 prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: community.description }}
-              />
-            ) : (
-              <p className="text-[11px] text-gray-500">No description available.</p>
-            )}
-          </div>
+          {(subCommunity?.seo_title || subCommunity?.seo_description || subCommunity?.seo_keyword) && (
+            <div className="border-t pt-4 mt-4">
+              <h4 className="font-medium text-gray-800 mb-2">SEO Information</h4>
+              <div className="space-y-2 text-sm">
+                {subCommunity?.seo_title && (
+                  <p><span className="font-medium text-gray-600">Title:</span> {subCommunity.seo_title}</p>
+                )}
+                {subCommunity?.seo_description && (
+                  <p><span className="font-medium text-gray-600">Description:</span> {subCommunity.seo_description}</p>
+                )}
+                {subCommunity?.seo_keyword && (
+                  <p><span className="font-medium text-gray-600">Keywords:</span> {subCommunity.seo_keyword}</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 });
 
-ViewCommunityModal.displayName = "ViewCommunityModal";
+ViewModal.displayName = "ViewModal";
 
-// ─────────────────────────────────────────────────────────────
-// Main Component
-// ─────────────────────────────────────────────────────────────
-export default function CommunitiesScreen() {
-  const router = useRouter();
+// Quick Add Modal
+const QuickAddModal = React.memo(({ isOpen, onClose, onSubmit, loading, communities }) => {
+  const [modalData, setModalData] = useState(INITIAL_MODAL_STATE);
 
-  // ✅ Auth State - Same as Agent Page
+  const handleChange = (field, value) => {
+    setModalData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!modalData.community_id) {
+      showError("Please select a community");
+      return;
+    }
+    if (!modalData.name.trim()) {
+      showError("Sub-Community name is required");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("country_id", "1");
+    formData.append("city_id", "1");
+    formData.append("community_id", modalData.community_id);
+    formData.append("name", modalData.name.trim());
+    formData.append("status", "active");
+
+    const success = await onSubmit(formData);
+    if (success) {
+      setModalData(INITIAL_MODAL_STATE);
+      onClose();
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      setModalData(INITIAL_MODAL_STATE);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h3 className="text-lg font-semibold text-gray-800">Quick Add Sub-Community</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Select Community <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={modalData.community_id}
+              onChange={(e) => handleChange("community_id", e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">Select Community</option>
+              {communities.map((community) => (
+                <option key={community.id} value={community.id}>
+                  {community.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Sub-Community Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={modalData.name}
+              onChange={(e) => handleChange("name", e.target.value)}
+              placeholder="Enter sub-community name"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-3 justify-end pt-4 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded hover:opacity-90 disabled:opacity-50"
+            >
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+});
+
+QuickAddModal.displayName = "QuickAddModal";
+
+// Column Selector Modal
+const ColumnSelectorModal = React.memo(({ isOpen, onClose, visibleColumns, onToggle }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl border border-gray-300">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+          <h3 className="text-sm font-medium text-gray-800">Show / Hide Column in Listing</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X className="w-4 h-4 text-gray-500" />
+          </button>
+        </div>
+        <div className="p-4">
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {ALL_COLUMNS.map((col) => (
+              <label
+                key={col.id}
+                className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900"
+              >
+                <input
+                  type="checkbox"
+                  checked={visibleColumns.has(col.id)}
+                  onChange={() => onToggle(col.id)}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>{col.label}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                onClose();
+                showSuccess("Columns updated successfully");
+              }}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+ColumnSelectorModal.displayName = "ColumnSelectorModal";
+
+// ==================== MAIN COMPONENT ====================
+export default function SubCommunitiesScreen() {
+  // Auth State
   const [admin, setAdmin] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [logoutLoading, setLogoutLoading] = useState(false);
 
-  // Community State
-  const [showModal, setShowModal] = useState(false);
-  const [viewCommunity, setViewCommunity] = useState(null);
+  // SubCommunity State
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [viewSubCommunity, setViewSubCommunity] = useState(null);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editId, setEditId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [modalData, setModalData] = useState(INITIAL_MODAL_STATE);
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
+  const [showCount, setShowCount] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [visibleColumns, setVisibleColumns] = useState(
+    new Set(["id", "image", "name", "community", "city", "direction", "status"])
+  );
+  const [showOverviewDropdown, setShowOverviewDropdown] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [filterCommunityId, setFilterCommunityId] = useState("");
 
-  // Hooks
-  const shouldReduceMotion = useReducedMotion();
-  const debouncedSearchTerm = useDebounce(searchTerm, 300);
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
   const {
     loading,
+    subCommunities,
     communities,
     pagination,
     fetchCommunities,
-    fetchCommunityById,
-    createCommunity,
-    updateCommunity,
-    deleteCommunity,
+    fetchSubCommunities,
+    fetchSubCommunityById,
+    createSubCommunity,
+    updateSubCommunity,
+    deleteSubCommunity,
     updateStatus,
-  } = useCommunityApi();
+    bulkDelete,
+  } = useSubCommunityApi();
 
-  const handleSliderTypeChange = useCallback((type) => {
-    setFormData((prev) => ({ ...prev, slider_type: type }));
-  }, []);
+  const fileUpload = useFileUpload();
 
-  const fileUpload = useFileUpload(handleSliderTypeChange);
-
-  // ✅ Auth Check Effect - Same as Agent Page
+  // ==================== AUTH VERIFICATION ====================
   useEffect(() => {
-    const checkAuth = () => {
-      const token = getAdminToken();
-
-      if (!token) {
-        toast.error("Please login to access dashboard");
-        router.replace("/admin/login");
-        return;
-      }
-
+    const verifyAuth = async () => {
       try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        const expiry = payload.exp * 1000;
+        const token = getAdminToken();
+        const sessionType = getCurrentSessionType();
 
-        if (Date.now() >= expiry) {
-          toast.error("Session expired. Please login again.");
-          removeAdminToken();
-          router.replace("/admin/login");
+        if (!token || !isAdminTokenValid()) {
+          logoutAll();
+          fastNavigate("/admin/login");
           return;
         }
 
-        const adminData = {
-          id: payload.id,
-          name: payload.name,
-          email: payload.email,
-          role: payload.role || "admin",
-          avatar: null,
-        };
+        if (sessionType !== "admin") {
+          logoutAll();
+          fastNavigate("/admin/login");
+          return;
+        }
 
-        setAdmin(adminData);
-        setIsAuthenticated(true);
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            credentials: "include",
+          });
+
+          if (!response.ok) throw new Error("Token verification failed");
+
+          const data = await response.json();
+
+          if (data.success && data.admin) {
+            setAdmin(data.admin);
+            setIsAuthenticated(true);
+          } else {
+            const payload = JSON.parse(atob(token.split(".")[1]));
+            setAdmin({
+              id: payload.id,
+              name: payload.name,
+              email: payload.email,
+              role: payload.role || "admin",
+              userType: payload.userType,
+            });
+            setIsAuthenticated(true);
+          }
+        } catch (verifyError) {
+          try {
+            const payload = JSON.parse(atob(token.split(".")[1]));
+            if (payload.userType === "admin") {
+              setAdmin({
+                id: payload.id,
+                name: payload.name,
+                email: payload.email,
+                role: payload.role || "admin",
+                userType: payload.userType,
+              });
+              setIsAuthenticated(true);
+            } else {
+              logoutAll();
+              fastNavigate("/admin/login");
+              return;
+            }
+          } catch {
+            logoutAll();
+            fastNavigate("/admin/login");
+            return;
+          }
+        }
+      } catch (error) {
+        logoutAll();
+        fastNavigate("/admin/login");
+      } finally {
         setAuthLoading(false);
-      } catch (e) {
-        console.error("Token decode error:", e);
-        toast.error("Invalid session. Please login again.");
-        removeAdminToken();
-        router.replace("/admin/login");
       }
     };
 
-    checkAuth();
-  }, [router]);
+    verifyAuth();
+  }, []);
 
-  // ✅ Handle Logout - Same as Agent Page
+  // ==================== LOGOUT HANDLER ====================
   const handleLogout = useCallback(async () => {
     setLogoutLoading(true);
+    const logoutToast = showLoading("Logging out...");
+
     try {
       const token = getAdminToken();
-      await fetch(`${API_BASE_URL}/api/v1/admin/logout`, {
+
+      await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {});
+
+      toast.dismiss(logoutToast);
+      showSuccess("Logged out successfully");
     } catch (err) {
       console.error("Logout error:", err);
+      toast.dismiss(logoutToast);
+      showError("Logout failed. Please try again.");
     } finally {
-      removeAdminToken();
+      logoutAll();
       setAdmin(null);
       setIsAuthenticated(false);
-      toast.success("Logged out successfully");
-      router.replace("/admin/login");
+      window.location.href = "/admin/login";
       setLogoutLoading(false);
     }
-  }, [router]);
-
-  // Animation Variants
-  const animationVariants = useMemo(
-    () => ({
-      overlay: {
-        hidden: { opacity: 0 },
-        show: { opacity: 1, transition: { duration: 0.18 } },
-        exit: { opacity: 0, transition: { duration: 0.15 } },
-      },
-      modal: {
-        hidden: { opacity: 0, scale: 0.96, y: 8 },
-        show: {
-          opacity: 1,
-          scale: 1,
-          y: 0,
-          transition: shouldReduceMotion
-            ? { duration: 0 }
-            : { type: "spring", stiffness: 420, damping: 32 },
-        },
-        exit: { opacity: 0, scale: 0.98, y: 8, transition: { duration: 0.14 } },
-      },
-    }),
-    [shouldReduceMotion]
-  );
-
-  // Form Handlers
-  const handleFormChange = useCallback((field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
   }, []);
 
-  const handleModalChange = useCallback((field, value) => {
-    setModalData((prev) => ({ ...prev, [field]: value }));
+  // ==================== FORM HANDLERS ====================
+  const handleFormChange = useCallback((field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   }, []);
 
   const resetForm = useCallback(() => {
@@ -979,236 +1004,334 @@ export default function CommunitiesScreen() {
     setEditId(null);
   }, [fileUpload]);
 
-  // Validation
+  // ==================== VALIDATION ====================
   const validateMainForm = useCallback(() => {
-    if (!formData.country.trim()) {
-      toast.error("Country is required");
-      return false;
-    }
-    if (!formData.city.trim()) {
-      toast.error("City is required");
-      return false;
-    }
     if (!formData.name.trim()) {
-      toast.error("Community name is required");
+      showError("Sub-Community name is required");
+      return false;
+    }
+    if (!formData.community_id) {
+      showError("Community is required");
       return false;
     }
     return true;
   }, [formData]);
 
-  const validateModalForm = useCallback(() => {
-    if (!modalData.city) {
-      toast.error("Please select a city");
-      return false;
-    }
-    if (!modalData.communityName.trim()) {
-      toast.error("Community name is required");
-      return false;
-    }
-    return true;
-  }, [modalData]);
-
-  // Submit Handlers
+  // ==================== SUBMIT HANDLERS ====================
   const handleMainSave = useCallback(
     async (e) => {
       e.preventDefault();
       if (!validateMainForm()) return;
 
-      setSubmitLoading(true);
-      try {
-        const formDataToSend = new FormData();
-        Object.entries(formData).forEach(([key, value]) => {
-          formDataToSend.append(key, value);
-        });
-
-        if (fileUpload.imageFile) {
-          formDataToSend.append("image", fileUpload.imageFile);
-        }
-        if (fileUpload.videoFile) {
-          formDataToSend.append("video", fileUpload.videoFile);
-        }
-
-        const result = editMode
-          ? await updateCommunity(editId, formDataToSend)
-          : await createCommunity(formDataToSend);
-
-        if (result.success) {
-          resetForm();
-          fetchCommunities();
-        }
-      } finally {
-        setSubmitLoading(false);
-      }
-    },
-    [formData, fileUpload.imageFile, fileUpload.videoFile, editMode, editId, validateMainForm, createCommunity, updateCommunity, resetForm, fetchCommunities]
-  );
-
-  const handleModalSave = useCallback(
-    async (e) => {
-      e.preventDefault();
-      if (!validateModalForm()) return;
-
-      setSubmitLoading(true);
-      try {
-        const formDataToSend = new FormData();
-        formDataToSend.append("country", "United Arab Emirates");
-        formDataToSend.append("city", modalData.city);
-        formDataToSend.append("name", modalData.communityName);
-
-        const result = await createCommunity(formDataToSend);
-
-        if (result.success) {
-          setShowModal(false);
-          setModalData(INITIAL_MODAL_STATE);
-          fetchCommunities();
-        }
-      } finally {
-        setSubmitLoading(false);
-      }
-    },
-    [modalData, validateModalForm, createCommunity, fetchCommunities]
-  );
-
-  // Action Handlers
-  const handleEdit = useCallback(
-    async (id) => {
-      const result = await fetchCommunityById(id);
-
-      if (result.success) {
-        const community = result.data;
-        setFormData({
-          country: community.country || "United Arab Emirates",
-          city: community.city || "Dubai",
-          name: community.name || "",
-          longitude: community.longitude || "",
-          latitude: community.latitude || "",
-          slider_type: community.slider_type || "image",
-          seo_title: community.seo_title || "",
-          seo_description: community.seo_description || "",
-          focus_keyword: community.focus_keyword || "",
-          description: community.description || "",
-          status: community.status || "active",
-        });
-        fileUpload.setPreviewsFromCommunity(community);
-        setEditMode(true);
-        setEditId(id);
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        toast.success("Community loaded for editing");
-      }
-    },
-    [fetchCommunityById, fileUpload]
-  );
-
-  const handleDelete = useCallback(
-    async (id) => {
-      if (!window.confirm("Are you sure you want to delete this community?")) {
+      if (!isAdminTokenValid()) {
+        showError("Session expired. Please login again.");
+        logoutAll();
+        fastNavigate("/admin/login");
         return;
       }
 
-      const result = await deleteCommunity(id);
-      if (result.success) {
-        fetchCommunities(pagination.currentPage || 1);
+      setSubmitLoading(true);
+      const saveToast = showLoading(editMode ? "Updating sub-community..." : "Creating sub-community...");
+
+      try {
+        const formDataToSend = new FormData();
+
+        // Required fields
+        formDataToSend.append("name", formData.name.trim());
+        formDataToSend.append("country_id", formData.country_id.toString());
+        formDataToSend.append("city_id", formData.city_id.toString());
+        formDataToSend.append("community_id", formData.community_id.toString());
+        formDataToSend.append("status", formData.status);
+
+        // Optional fields
+        if (formData.direction) formDataToSend.append("direction", formData.direction);
+        if (formData.latitude) formDataToSend.append("latitude", formData.latitude);
+        if (formData.longitude) formDataToSend.append("longitude", formData.longitude);
+        if (formData.description) formDataToSend.append("description", formData.description);
+        if (formData.seo_title) formDataToSend.append("seo_title", formData.seo_title);
+        if (formData.seo_description) formDataToSend.append("seo_description", formData.seo_description);
+        if (formData.seo_keyword) formDataToSend.append("seo_keyword", formData.seo_keyword);
+
+        // Boolean fields
+        formDataToSend.append("top_community", formData.top_community ? "true" : "false");
+
+        // Image file
+        if (fileUpload.imageFile) {
+          formDataToSend.append("img", fileUpload.imageFile);
+        }
+
+        // Debug log
+        console.log("📤 Sending form data:");
+        for (let [key, value] of formDataToSend.entries()) {
+          console.log(`  ${key}: ${value instanceof File ? value.name : value}`);
+        }
+
+        const result = editMode
+          ? await updateSubCommunity(editId, formDataToSend)
+          : await createSubCommunity(formDataToSend);
+
+        toast.dismiss(saveToast);
+
+        if (result.success) {
+          resetForm();
+          fetchSubCommunities(currentPage, showCount, { 
+            search: searchTerm,
+            community_id: filterCommunityId 
+          });
+        }
+      } catch (error) {
+        toast.dismiss(saveToast);
+        console.error("Save error:", error);
+        showError(error.message || "Failed to save sub-community");
+      } finally {
+        setSubmitLoading(false);
       }
     },
-    [deleteCommunity, fetchCommunities, pagination.currentPage]
+    [
+      formData,
+      fileUpload.imageFile,
+      editMode,
+      editId,
+      validateMainForm,
+      createSubCommunity,
+      updateSubCommunity,
+      resetForm,
+      fetchSubCommunities,
+      currentPage,
+      showCount,
+      searchTerm,
+      filterCommunityId,
+    ]
   );
+
+  const handleQuickAdd = useCallback(
+    async (formData) => {
+      setSubmitLoading(true);
+      const saveToast = showLoading("Creating sub-community...");
+
+      try {
+        const result = await createSubCommunity(formData);
+        toast.dismiss(saveToast);
+
+        if (result.success) {
+          fetchSubCommunities(1, showCount);
+          return true;
+        }
+        return false;
+      } catch (error) {
+        toast.dismiss(saveToast);
+        console.error("Quick add error:", error);
+        showError(error.message || "Failed to create sub-community");
+        return false;
+      } finally {
+        setSubmitLoading(false);
+      }
+    },
+    [createSubCommunity, fetchSubCommunities, showCount]
+  );
+
+  // ==================== CRUD HANDLERS ====================
+  const handleEdit = useCallback(
+    async (id) => {
+      const result = await fetchSubCommunityById(id);
+
+      if (result.success) {
+        const subCommunity = result.data;
+        setFormData({
+          country_id: subCommunity.country_id || 1,
+          city_id: subCommunity.city_id || 1,
+          community_id: subCommunity.community_id || "",
+          direction: subCommunity.direction || "",
+          name: subCommunity.name || "",
+          longitude: subCommunity.longitude || "",
+          latitude: subCommunity.latitude || "",
+          seo_title: subCommunity.seo_title || "",
+          seo_description: subCommunity.seo_description || "",
+          seo_keyword: subCommunity.seo_keyword || "",
+          description: subCommunity.description || "",
+          status: normalizeStatus(subCommunity.status),
+          top_community: subCommunity.top_community === true || subCommunity.top_community === 1,
+        });
+        fileUpload.setPreviewsFromData(subCommunity);
+        setEditMode(true);
+        setEditId(id);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        showSuccess("Sub-Community loaded for editing");
+      }
+    },
+    [fetchSubCommunityById, fileUpload]
+  );
+
+  const handleDeleteClick = useCallback((subCommunity) => {
+    setDeleteTarget(subCommunity);
+    setShowDeleteModal(true);
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteTarget) return;
+
+    setDeleteLoading(true);
+    const deleteToast = showLoading("Deleting sub-community...");
+
+    try {
+      const result = await deleteSubCommunity(deleteTarget.id);
+      toast.dismiss(deleteToast);
+
+      if (result.success) {
+        fetchSubCommunities(currentPage, showCount, { 
+          search: searchTerm,
+          community_id: filterCommunityId 
+        });
+        setShowDeleteModal(false);
+        setDeleteTarget(null);
+      }
+    } catch (error) {
+      toast.dismiss(deleteToast);
+      console.error("Delete error:", error);
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [deleteTarget, deleteSubCommunity, fetchSubCommunities, currentPage, showCount, searchTerm, filterCommunityId]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) {
+      showError("Please select sub-communities to delete");
+      return;
+    }
+
+    setDeleteLoading(true);
+    const deleteToast = showLoading(`Deleting ${selectedIds.size} sub-communities...`);
+
+    try {
+      const result = await bulkDelete(Array.from(selectedIds));
+      toast.dismiss(deleteToast);
+
+      if (result.success) {
+        setSelectedIds(new Set());
+        fetchSubCommunities(1, showCount);
+        setShowDeleteModal(false);
+      }
+    } catch (error) {
+      toast.dismiss(deleteToast);
+      console.error("Bulk delete error:", error);
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [selectedIds, bulkDelete, fetchSubCommunities, showCount]);
 
   const handleStatusUpdate = useCallback(
     async (id, newStatus) => {
+      const updateToast = showLoading("Updating status...");
       const result = await updateStatus(id, newStatus);
+      toast.dismiss(updateToast);
+
       if (result.success) {
-        fetchCommunities(pagination.currentPage || 1);
+        fetchSubCommunities(currentPage, showCount, { 
+          search: searchTerm,
+          community_id: filterCommunityId 
+        });
       }
     },
-    [updateStatus, fetchCommunities, pagination.currentPage]
-  );
-
-  const handlePageChange = useCallback(
-    (page) => {
-      if (!pagination?.totalPages) return;
-      if (page < 1 || page > pagination.totalPages) return;
-
-      fetchCommunities(page);
-      setSelectedIds([]);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    },
-    [pagination?.totalPages, fetchCommunities]
+    [updateStatus, fetchSubCommunities, currentPage, showCount, searchTerm, filterCommunityId]
   );
 
   const handleRefresh = useCallback(() => {
     setSearchTerm("");
-    setSelectedIds([]);
-    fetchCommunities(pagination.currentPage || 1);
-  }, [fetchCommunities, pagination.currentPage]);
+    setFilterCommunityId("");
+    setSelectedIds(new Set());
+    setCurrentPage(1);
+    fetchSubCommunities(1, showCount);
+  }, [fetchSubCommunities, showCount]);
 
-  // Selection Handlers
-  const filteredCommunities = useMemo(() => {
-    if (!debouncedSearchTerm.trim()) return communities;
-
-    return communities.filter((community) =>
-      (community.name || "")
-        .toString()
-        .toLowerCase()
-        .includes(debouncedSearchTerm.toLowerCase())
-    );
-  }, [communities, debouncedSearchTerm]);
-
-  const allVisibleSelected = useMemo(() => {
-    return (
-      filteredCommunities.length > 0 &&
-      filteredCommunities.every((c) => selectedIds.includes(c.id))
-    );
-  }, [filteredCommunities, selectedIds]);
-
-  const toggleSelectAllVisible = useCallback(() => {
-    if (allVisibleSelected) {
-      setSelectedIds((prev) =>
-        prev.filter((id) => !filteredCommunities.some((c) => c.id === id))
-      );
-    } else {
-      setSelectedIds((prev) => {
-        const idsToAdd = filteredCommunities.map((c) => c.id);
-        return Array.from(new Set([...prev, ...idsToAdd]));
-      });
-    }
-  }, [allVisibleSelected, filteredCommunities]);
-
-  const toggleRowSelect = useCallback((id) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  }, []);
-
-  // Modal Handlers
-  const handleOpenModal = useCallback(() => setShowModal(true), []);
-  const handleCloseModal = useCallback(() => {
-    setShowModal(false);
-    setModalData(INITIAL_MODAL_STATE);
-  }, []);
-  const handleCloseViewModal = useCallback(() => setViewCommunity(null), []);
-
-  // Effects
+  // ==================== EFFECTS ====================
+  // Initial fetch
   useEffect(() => {
     if (isAuthenticated) {
       fetchCommunities();
+      fetchSubCommunities(1, showCount);
     }
   }, [isAuthenticated]);
 
+  // Search & filter effect
   useEffect(() => {
-    setSelectedIds([]);
-  }, [communities]);
+    if (isAuthenticated) {
+      setCurrentPage(1);
+      fetchSubCommunities(1, showCount, { 
+        search: debouncedSearchTerm,
+        community_id: filterCommunityId 
+      });
+    }
+  }, [debouncedSearchTerm, filterCommunityId, isAuthenticated, showCount]);
 
-  // ✅ Loading State - Same as Agent Page
+  // Page change effect
+  useEffect(() => {
+    if (isAuthenticated && currentPage > 1) {
+      fetchSubCommunities(currentPage, showCount, { 
+        search: searchTerm,
+        community_id: filterCommunityId 
+      });
+    }
+  }, [currentPage]);
+
+  // ==================== UTILITY FUNCTIONS ====================
+  const getStatusInfo = (status) => {
+    const isActive = isStatusActive(status);
+    return isActive ? STATUS_OPTIONS[0] : STATUS_OPTIONS[1];
+  };
+
+  const getCommunityName = (communityId) => {
+    const community = communities.find((c) => c.id === parseInt(communityId));
+    return community ? community.name : "Unknown";
+  };
+
+  const toggleColumn = (columnId) => {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(columnId)) {
+        next.delete(columnId);
+      } else {
+        next.add(columnId);
+      }
+      return next;
+    });
+  };
+
+  const isVisible = (columnId) => visibleColumns.has(columnId);
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === subCommunities.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(subCommunities.map((c) => c.id)));
+    }
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // ==================== PAGINATION ====================
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const totalPages = pagination.totalPages || 1;
+
+  // ==================== LOADING STATE ====================
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Toaster />
         <div className="text-center">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
           </div>
-          <p className="mt-4 text-gray-600 font-medium">
-            Verifying authentication...
-          </p>
+          <p className="mt-4 text-gray-600 font-medium">Verifying authentication...</p>
         </div>
       </div>
     );
@@ -1220,7 +1343,19 @@ export default function CommunitiesScreen() {
 
   return (
     <>
-      {/* ✅ Admin Navbar - Same as Agent Page */}
+      <Toaster
+        position="top-right"
+        reverseOrder={false}
+        gutter={8}
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: "#363636",
+            color: "#fff",
+          },
+        }}
+      />
+
       <AdminNavbar
         admin={admin}
         isAuthenticated={isAuthenticated}
@@ -1229,323 +1364,305 @@ export default function CommunitiesScreen() {
       />
 
       <div className="min-h-screen bg-gray-100 pt-4">
-        <section className="bg-white py-6 px-4 md:px-6">
-          {/* Quick Add Modal */}
-          <AnimatePresence>
-            {showModal && (
-              <QuickAddModal
-                isOpen={showModal}
-                onClose={handleCloseModal}
-                modalData={modalData}
-                onModalChange={handleModalChange}
-                onSubmit={handleModalSave}
-                isLoading={submitLoading}
-                variants={animationVariants}
-              />
-            )}
-          </AnimatePresence>
+        {/* Delete Modal */}
+        <DeleteModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setDeleteTarget(null);
+          }}
+          onConfirm={deleteTarget ? handleDeleteConfirm : handleBulkDelete}
+          loading={deleteLoading}
+          title={deleteTarget ? "Delete Sub-Community" : `Delete ${selectedIds.size} Sub-Communities`}
+          message={
+            deleteTarget
+              ? `Are you sure you want to delete "${deleteTarget.name}"? This action cannot be undone.`
+              : `Are you sure you want to delete ${selectedIds.size} sub-communities? This action cannot be undone.`
+          }
+        />
 
-          {/* View Community Modal */}
-          <AnimatePresence>
-            {viewCommunity && (
-              <ViewCommunityModal
-                community={viewCommunity}
-                onClose={handleCloseViewModal}
-                variants={animationVariants}
-              />
-            )}
-          </AnimatePresence>
+        {/* Quick Add Modal */}
+        <QuickAddModal
+          isOpen={showQuickAddModal}
+          onClose={() => setShowQuickAddModal(false)}
+          onSubmit={handleQuickAdd}
+          loading={submitLoading}
+          communities={communities}
+        />
 
-          <div className="max-w-6xl mx-auto border border-gray-400">
-            {/* Header Tabs */}
-            <div className="flex items-center justify-between bg-[#f5f5f5] border-b border-gray-400 px-3 py-1.5 text-xs">
-              <div className="flex items-center gap-4">
-                <button className="px-3 py-1 bg-white border border-gray-400 text-xs font-semibold">
-                  Community
-                </button>
+        {/* View Modal */}
+        <ViewModal 
+          subCommunity={viewSubCommunity} 
+          communities={communities}
+          onClose={() => setViewSubCommunity(null)} 
+        />
 
-                <Link href="/admin/sub-communities">
-                  <button className="px-3 py-1 text-gray-700 hover:underline">
-                    Sub Community
-                  </button>
-                </Link>
+        {/* Column Selector Modal */}
+        <ColumnSelectorModal
+          isOpen={showOverviewDropdown}
+          onClose={() => setShowOverviewDropdown(false)}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+        />
 
-                <Link href="/admin/project_lists">
-                  <button className="px-3 py-1 text-gray-700 hover:underline">
-                    Communities Data OR Ids Info
-                  </button>
-                </Link>
-              </div>
+        <div className="p-3">
+          {/* Tabs */}
+          <div className="mb-3">
+            <div className="inline-flex bg-white border border-gray-300 rounded overflow-hidden">
               <button
-                type="button"
-                onClick={handleOpenModal}
-                className="px-3 py-1 bg-[#6f42c1] text-white text-[11px] rounded-sm hover:bg-purple-600 transition-colors flex items-center gap-1"
+                onClick={() => fastNavigate("/admin/communities")}
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
               >
-                <Plus size={12} />
-                Add Community Data
+                Communities
+              </button>
+              <button
+                onClick={() => fastNavigate("/admin/cities")}
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                Cities
+              </button>
+              <button className="px-4 py-2 text-sm font-medium bg-gray-800 text-white">
+                Sub Communities
               </button>
             </div>
+          </div>
 
-            {/* Main Form */}
-            <form onSubmit={handleMainSave} className="bg-[#fbfbc7] px-3 py-3 text-xs">
-              <div className="flex items-center justify-between mb-3">
-                <p className="font-semibold">
-                  {editMode ? "Edit Community" : "Add New Community"}
-                </p>
-                {editMode && (
-                  <button
-                    type="button"
-                    onClick={resetForm}
-                    className="px-3 py-1 text-xs bg-gray-500 text-white rounded-sm hover:bg-gray-600 transition-colors"
-                  >
-                    Cancel Edit
-                  </button>
-                )}
-              </div>
+          {/* Add/Edit Form Card */}
+          <div className="bg-white border border-gray-300 rounded-lg mb-4">
+            <div className="px-4 py-3 border-b bg-gray-50 rounded-t-lg flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-800">
+                {editMode ? "Edit Sub-Community" : "Add New Sub-Community"}
+              </h2>
+              {editMode && (
+                <button
+                  onClick={resetForm}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  Cancel Edit
+                </button>
+              )}
+            </div>
 
-              {/* Form Fields - Row 1 */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+            <form onSubmit={handleMainSave} className="p-4">
+              {/* Row 1: Country, City, Community, Name */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                 <div>
-                  <label htmlFor="country" className="block mb-1">
-                    Select Country <span className="text-red-500">*</span>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">
+                    Country <span className="text-red-500">*</span>
                   </label>
                   <select
-                    id="country"
-                    value={formData.country}
-                    onChange={(e) => handleFormChange("country", e.target.value)}
-                    className="w-full border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
+                    value={formData.country_id}
+                    onChange={(e) => handleFormChange("country_id", parseInt(e.target.value))}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
                     {COUNTRIES.map((country) => (
-                      <option key={country} value={country}>
-                        {country}
+                      <option key={country.id} value={country.id}>
+                        {country.name}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label htmlFor="city" className="block mb-1">
+                  <label className="block mb-1 text-xs font-medium text-gray-700">
                     City <span className="text-red-500">*</span>
                   </label>
                   <select
-                    id="city"
-                    value={formData.city}
-                    onChange={(e) => handleFormChange("city", e.target.value)}
-                    className="w-full border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
+                    value={formData.city_id}
+                    onChange={(e) => handleFormChange("city_id", parseInt(e.target.value))}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
                     {UAE_CITIES.map((city) => (
-                      <option key={city} value={city}>
-                        {city}
+                      <option key={city.id} value={city.id}>
+                        {city.name}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label htmlFor="name" className="block mb-1">
-                    Community name <span className="text-red-500">*</span>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">
+                    Community <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.community_id}
+                    onChange={(e) => handleFormChange("community_id", e.target.value)}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select Community</option>
+                    {communities.map((community) => (
+                      <option key={community.id} value={community.id}>
+                        {community.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">
+                    Sub-Community Name <span className="text-red-500">*</span>
                   </label>
                   <input
-                    id="name"
                     type="text"
                     value={formData.name}
                     onChange={(e) => handleFormChange("name", e.target.value)}
-                    placeholder="Enter Community Name"
-                    className="w-full border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
+                    placeholder="Enter sub-community name"
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label htmlFor="longitude" className="block mb-1">
-                      Longitude
-                    </label>
-                    <input
-                      id="longitude"
-                      type="text"
-                      value={formData.longitude}
-                      onChange={(e) => handleFormChange("longitude", e.target.value)}
-                      placeholder="e.g., 55.2708"
-                      className="w-full border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="latitude" className="block mb-1">
-                      Latitude
-                    </label>
-                    <input
-                      id="latitude"
-                      type="text"
-                      value={formData.latitude}
-                      onChange={(e) => handleFormChange("latitude", e.target.value)}
-                      placeholder="e.g., 25.2048"
-                      className="w-full border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
-                    />
-                  </div>
                 </div>
               </div>
 
-              {/* Form Fields - Row 2: Media */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label htmlFor="slider_type" className="block mb-1">
-                      Slider Type
-                    </label>
-                    <select
-                      id="slider_type"
-                      value={formData.slider_type}
-                      onChange={(e) => handleFormChange("slider_type", e.target.value)}
-                      className="w-full border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
-                    >
-                      {SLIDER_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {type.charAt(0).toUpperCase() + type.slice(1)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label htmlFor="media-upload" className="block mb-1">
-                      {formData.slider_type === "video" ? "Upload Video" : "Upload Image"}
-                    </label>
-                    {formData.slider_type === "video" ? (
-                      <input
-                        id="media-upload"
-                        type="file"
-                        accept="video/mp4,video/webm,video/ogg"
-                        onChange={fileUpload.handleVideoChange}
-                        className="w-full border border-gray-400 bg-white px-1 py-[3px] text-[11px]"
-                      />
-                    ) : (
-                      <input
-                        id="media-upload"
-                        type="file"
-                        accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
-                        onChange={fileUpload.handleImageChange}
-                        className="w-full border border-gray-400 bg-white px-1 py-[3px] text-[11px]"
-                      />
-                    )}
-                  </div>
+              {/* Row 2: Direction, Status, Lat, Long */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">
+                    Direction
+                  </label>
+                  <select
+                    value={formData.direction}
+                    onChange={(e) => handleFormChange("direction", e.target.value)}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {DIRECTIONS.map((dir) => (
+                      <option key={dir.value} value={dir.value}>
+                        {dir.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">Status</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => handleFormChange("status", e.target.value)}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">Latitude</label>
+                  <input
+                    type="text"
+                    value={formData.latitude}
+                    onChange={(e) => handleFormChange("latitude", e.target.value)}
+                    placeholder="e.g., 25.2048"
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">Longitude</label>
+                  <input
+                    type="text"
+                    value={formData.longitude}
+                    onChange={(e) => handleFormChange("longitude", e.target.value)}
+                    placeholder="e.g., 55.2708"
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: Image Upload & Preview */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="md:col-span-2">
+                  <label className="block mb-1 text-xs font-medium text-gray-700">
+                    Sub-Community Image
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+                    onChange={fileUpload.handleImageChange}
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                </div>
+
+                <div className="flex items-end">
                   {fileUpload.imagePreview && (
                     <div className="relative group">
                       <img
                         src={fileUpload.imagePreview}
                         alt="Preview"
-                        className="w-20 h-20 object-cover border border-gray-300 rounded"
+                        className="w-16 h-16 object-cover border border-gray-300 rounded"
                       />
                       <button
                         type="button"
                         onClick={fileUpload.clearImage}
                         className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                       >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  )}
-
-                  {fileUpload.videoPreview && (
-                    <div className="relative group">
-                      <video
-                        src={fileUpload.videoPreview}
-                        className="w-32 h-20 object-cover border border-gray-300 rounded"
-                        controls
-                      />
-                      <button
-                        type="button"
-                        onClick={fileUpload.clearVideo}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X size={12} />
+                        <X size={10} />
                       </button>
                     </div>
                   )}
                 </div>
+
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.top_community}
+                      onChange={(e) => handleFormChange("top_community", e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">Top Community</span>
+                  </label>
+                </div>
               </div>
 
-              {/* Form Fields - Status */}
-              <div className="mb-3">
-                <label htmlFor="status" className="block mb-1">
-                  Status
-                </label>
-                <select
-                  id="status"
-                  value={formData.status}
-                  onChange={(e) => handleFormChange("status", e.target.value)}
-                  className="w-32 border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
-                >
-                  {STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>
-                      {status.charAt(0).toUpperCase() + status.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Form Fields - SEO & Description */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+              {/* Row 4: SEO & Description */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="seo_title" className="block mb-1">
+                    <label className="block mb-1 text-xs font-medium text-gray-700">
                       SEO Title
                     </label>
                     <input
-                      id="seo_title"
                       type="text"
                       value={formData.seo_title}
                       onChange={(e) => handleFormChange("seo_title", e.target.value)}
                       maxLength={60}
-                      className="w-full border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
-                    <p className="mt-1 text-[10px] text-gray-700">
-                      {formData.seo_title.length}/60 characters
-                    </p>
+                    <p className="mt-1 text-xs text-gray-500">{formData.seo_title.length}/60</p>
                   </div>
 
                   <div>
-                    <label htmlFor="seo_description" className="block mb-1">
+                    <label className="block mb-1 text-xs font-medium text-gray-700">
                       SEO Description
                     </label>
                     <textarea
-                      id="seo_description"
-                      rows={4}
+                      rows={2}
                       value={formData.seo_description}
                       onChange={(e) => handleFormChange("seo_description", e.target.value)}
                       maxLength={160}
-                      className="w-full border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none resize-none focus:ring-1 focus:ring-blue-400"
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
-                    <p className="mt-1 text-[10px] text-gray-700">
-                      {formData.seo_description.length}/160 characters
+                    <p className="mt-1 text-xs text-gray-500">
+                      {formData.seo_description.length}/160
                     </p>
                   </div>
 
                   <div>
-                    <label htmlFor="focus_keyword" className="block mb-1">
-                      SEO Focus Keyword
+                    <label className="block mb-1 text-xs font-medium text-gray-700">
+                      SEO Keywords
                     </label>
                     <input
-                      id="focus_keyword"
                       type="text"
-                      value={formData.focus_keyword}
-                      onChange={(e) => handleFormChange("focus_keyword", e.target.value)}
-                      className="w-full border border-gray-400 bg-[#ffffe6] px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
+                      value={formData.seo_keyword}
+                      onChange={(e) => handleFormChange("seo_keyword", e.target.value)}
+                      placeholder="keyword1, keyword2"
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
-                    <ul className="mt-2 text-[10px] text-orange-700 space-y-1 list-disc list-inside">
-                      <li>Add Focus Keyword to the SEO title</li>
-                      <li>Add Focus Keyword to your SEO Meta Description</li>
-                      <li>Use Focus Keyword in the URL</li>
-                      <li>Use Focus Keyword in the content</li>
-                      <li>Content is long enough (600+ words)</li>
-                    </ul>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block mb-1">Community Description</label>
+                  <label className="block mb-1 text-xs font-medium text-gray-700">
+                    Description
+                  </label>
                   <TextEditor
                     value={formData.description}
                     onChange={(value) => handleFormChange("description", value)}
@@ -1553,113 +1670,392 @@ export default function CommunitiesScreen() {
                 </div>
               </div>
 
-              {/* Form Buttons */}
-              <div className="flex justify-start gap-2 mt-4 border-t border-gray-300 pt-3">
+              {/* Submit Buttons */}
+              <div className="flex items-center gap-3 pt-4 border-t">
                 <button
                   type="submit"
                   disabled={submitLoading}
-                  className="px-4 py-1.5 text-xs font-semibold bg-[#007bff] text-white border border-[#007bff] rounded-sm disabled:opacity-50 flex items-center gap-1 hover:bg-blue-600 transition-colors"
+                  style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded hover:opacity-90 disabled:opacity-50"
                 >
-                  {submitLoading && <Loader2 size={12} className="animate-spin" />}
-                  {editMode ? "Update" : "Save"}
+                  {submitLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {editMode ? "Update Sub-Community" : "Save Sub-Community"}
                 </button>
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="px-4 py-1.5 text-xs font-semibold bg-[#e0e0e0] text-black border border-gray-500 rounded-sm hover:bg-gray-300 transition-colors"
-                >
-                  Cancel
-                </button>
+                {editMode && (
+                  <button
+                    type="button"
+                    onClick={resetForm}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
+                  >
+                    Cancel Edit
+                  </button>
+                )}
               </div>
             </form>
+          </div>
 
-            {/* Communities List */}
-            <div className="p-3 bg-white">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold">Communities List</h3>
+          {/* Controls */}
+          <div className="bg-white border border-gray-300 rounded-t p-3">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowQuickAddModal(true)}
+                  style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded hover:opacity-90"
+                >
+                  <Plus className="w-4 h-4" />
+                  Quick Add
+                </button>
+
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+
+                {selectedIds.size > 0 && (
                   <button
-                    onClick={handleRefresh}
-                    disabled={loading}
-                    className="px-3 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+                    onClick={() => {
+                      setDeleteTarget(null);
+                      setShowDeleteModal(true);
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700"
                   >
-                    <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-                    Refresh
+                    <Trash2 className="w-4 h-4" />
+                    Delete ({selectedIds.size})
                   </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <Search
-                      size={14}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400"
-                    />
-                    <input
-                      type="text"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Search by Name"
-                      className="w-full md:w-56 border border-gray-300 rounded-sm pl-7 pr-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-400"
-                    />
-                  </div>
-                </div>
+                )}
               </div>
 
-              {loading ? (
-                <div className="flex items-center justify-center py-10">
-                  <Loader2 size={24} className="animate-spin text-blue-500" />
-                  <span className="ml-2 text-sm">Loading communities...</span>
-                </div>
-              ) : filteredCommunities.length === 0 ? (
-                <div className="text-center py-10 text-gray-500 text-sm">
-                  {searchTerm.trim()
-                    ? `No communities found for "${searchTerm}".`
-                    : "No communities found. Add your first community!"}
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs border border-gray-300">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center w-8">
-                          <input
-                            type="checkbox"
-                            checked={allVisibleSelected}
-                            onChange={toggleSelectAllVisible}
-                            className="cursor-pointer"
-                          />
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-left w-12">ID</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-left w-36">Image</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-left">Community Name</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-left">City</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-left">Country</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-left">Description</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-left w-20">Status</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center w-24">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredCommunities.map((community) => (
-                        <CommunityTableRow
-                          key={community.id}
-                          community={community}
-                          isSelected={selectedIds.includes(community.id)}
-                          onToggleSelect={() => toggleRowSelect(community.id)}
-                          onView={() => setViewCommunity(community)}
-                          onEdit={() => handleEdit(community.id)}
-                          onDelete={() => handleDelete(community.id)}
-                          onStatusUpdate={handleStatusUpdate}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <div className="flex items-center gap-3">
+                {/* Community Filter */}
+                <select
+                  value={filterCommunityId}
+                  onChange={(e) => setFilterCommunityId(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">All Communities</option>
+                  {communities.map((community) => (
+                    <option key={community.id} value={community.id}>
+                      {community.name}
+                    </option>
+                  ))}
+                </select>
 
-              <Pagination pagination={pagination} onPageChange={handlePageChange} />
+                {/* Search */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search sub-communities..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-4 pr-10 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-64"
+                  />
+                  <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-gray-800 hover:bg-gray-700 rounded">
+                    <Search className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setShowOverviewDropdown(true)}
+                  style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
+                  className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-sm font-medium rounded hover:opacity-90"
+                >
+                  Overview
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center text-sm text-gray-600">
+              <span className="mr-2">Show</span>
+              <select
+                value={showCount}
+                onChange={(e) => {
+                  setShowCount(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {[10, 25, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <span className="ml-2">entries</span>
+              <span className="ml-4 text-gray-500">
+                Total: {pagination.totalItems} sub-communities
+              </span>
             </div>
           </div>
-        </section>
+
+          {/* Error */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 border-t-0 px-4 py-3 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600" />
+              <div className="flex-1 text-sm text-red-800">{error}</div>
+              <button onClick={handleRefresh} className="text-sm underline text-red-700">
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Table */}
+          <div
+            className="border border-gray-300 border-t-0"
+            style={{ backgroundColor: "rgb(236,237,238)" }}
+          >
+            {loading && subCommunities.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="w-8 h-8 border-3 border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+                <p className="mt-4 text-gray-600">Loading sub-communities...</p>
+              </div>
+            ) : subCommunities.length === 0 ? (
+              <div className="text-center py-12">
+                <Building className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-600">No sub-communities found</p>
+                {(searchTerm || filterCommunityId) && (
+                  <p className="text-sm text-gray-500 mt-1">Try a different search term or filter</p>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full" style={{ backgroundColor: "rgb(236,237,238)" }}>
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-300">
+                      <th className="w-10 px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={
+                            selectedIds.size === subCommunities.length && subCommunities.length > 0
+                          }
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 rounded border-gray-300"
+                        />
+                      </th>
+                      {isVisible("id") && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                          ID
+                        </th>
+                      )}
+                      {isVisible("image") && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                          Image
+                        </th>
+                      )}
+                      {isVisible("name") && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                          Name
+                        </th>
+                      )}
+                      {isVisible("community") && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                          Community
+                        </th>
+                      )}
+                      {isVisible("city") && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                          City
+                        </th>
+                      )}
+                      {isVisible("direction") && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                          Direction
+                        </th>
+                      )}
+                      {isVisible("description") && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                          Description
+                        </th>
+                      )}
+                      {isVisible("status") && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                          Status
+                        </th>
+                      )}
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subCommunities.map((subCommunity) => {
+                      const statusInfo = getStatusInfo(subCommunity.status);
+                      const isActive = isStatusActive(subCommunity.status);
+
+                      return (
+                        <tr
+                          key={subCommunity.id}
+                          className="border-b border-gray-200 hover:bg-gray-50"
+                        >
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(subCommunity.id)}
+                              onChange={() => toggleSelect(subCommunity.id)}
+                              className="w-4 h-4 rounded border-gray-300"
+                            />
+                          </td>
+                          {isVisible("id") && (
+                            <td className="px-4 py-3">
+                              <button
+                                onClick={() => handleEdit(subCommunity.id)}
+                                className="text-blue-600 hover:underline text-sm font-medium"
+                              >
+                                #{subCommunity.id}
+                              </button>
+                            </td>
+                          )}
+                          {isVisible("image") && (
+                            <td className="px-4 py-3">
+                              <div className="w-16 h-12 rounded overflow-hidden bg-gray-100 border border-gray-200">
+                                <SubCommunityImage src={subCommunity.img} alt={subCommunity.name} />
+                              </div>
+                            </td>
+                          )}
+                          {isVisible("name") && (
+                            <td className="px-4 py-3 text-sm font-medium text-gray-800">
+                              {subCommunity.name}
+                            </td>
+                          )}
+                          {isVisible("community") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              <div className="flex items-center gap-1">
+                                <Building className="w-3 h-3 text-gray-400" />
+                                {getCommunityName(subCommunity.community_id)}
+                              </div>
+                            </td>
+                          )}
+                          {isVisible("city") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {getCityName(subCommunity.city_id)}
+                            </td>
+                          )}
+                          {isVisible("direction") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {subCommunity.direction ? (
+                                <div className="flex items-center gap-1">
+                                  <Compass className="w-3 h-3 text-gray-400" />
+                                                  {subCommunity.direction}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                          )}
+                          {isVisible("description") && (
+                            <td className="px-4 py-3 text-sm text-gray-600 max-w-[200px]">
+                              <p className="truncate">
+                                {truncateText(stripHtml(subCommunity.description || ""), 80)}
+                              </p>
+                            </td>
+                          )}
+                          {isVisible("status") && (
+                            <td className="px-4 py-3">
+                              <button
+                                onClick={() =>
+                                  handleStatusUpdate(
+                                    subCommunity.id,
+                                    isActive ? "inactive" : "active"
+                                  )
+                                }
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color} hover:opacity-80 transition-opacity`}
+                              >
+                                {statusInfo.label}
+                              </button>
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-sm">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setViewSubCommunity(subCommunity)}
+                                className="p-1.5 rounded hover:bg-gray-100 text-gray-600"
+                                title="View"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleEdit(subCommunity.id)}
+                                className="p-1.5 rounded hover:bg-blue-50 text-blue-600"
+                                title="Edit"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteClick(subCommunity)}
+                                className="p-1.5 rounded hover:bg-red-50 text-red-600"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Pagination */}
+          {subCommunities.length > 0 && (
+            <div className="flex items-center justify-between bg-white border border-gray-300 border-t-0 px-4 py-3 rounded-b">
+              <div className="text-sm text-gray-600">
+                Showing {(pagination.currentPage - 1) * pagination.limit + 1} to{" "}
+                {Math.min(pagination.currentPage * pagination.limit, pagination.totalItems)} of{" "}
+                {pagination.totalItems} entries
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => handlePageChange(pageNum)}
+                      className={`px-3 py-1.5 border rounded text-sm ${
+                        currentPage === pageNum
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { Suspense, useMemo, useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 import {
   Search,
@@ -37,12 +37,42 @@ import { Toaster, toast } from "react-hot-toast";
 import {
   getAdminToken,
   isAdminTokenValid,
-  getCurrentSessionType,
-  logoutAll,
+  clearAdminTokens,
+  getAdminUser,
+  decodeToken,
 } from "../../../utils/auth";
 import AdminNavbar from "../dashboard/header/DashboardNavbar";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+
+// ==================== AUTH HELPERS ====================
+const getCurrentSessionType = () => {
+  if (typeof window === "undefined") return null;
+  
+  const adminToken = localStorage.getItem("adminToken") || sessionStorage.getItem("adminToken");
+  const userToken = localStorage.getItem("userToken") || sessionStorage.getItem("userToken");
+  
+  if (adminToken) return "admin";
+  if (userToken) return "user";
+  return null;
+};
+
+const logoutAll = () => {
+  if (typeof window === "undefined") return;
+  
+  localStorage.removeItem("adminToken");
+  localStorage.removeItem("userToken");
+  localStorage.removeItem("token");
+  sessionStorage.removeItem("adminToken");
+  sessionStorage.removeItem("userToken");
+  sessionStorage.removeItem("token");
+  
+  document.cookie.split(";").forEach((c) => {
+    document.cookie = c
+      .replace(/^ +/, "")
+      .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+  });
+};
 
 // ==================== TOKEN VERIFICATION ====================
 const verifyToken = async (token) => {
@@ -69,11 +99,11 @@ const verifyToken = async (token) => {
 // ==================== IMAGE URL HELPER ====================
 const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
-  
+
   if (!isNaN(imagePath)) {
     return `${API_BASE_URL}/api/v1/media/${imagePath}`;
   }
-  
+
   if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) return imagePath;
   if (imagePath.startsWith("data:")) return imagePath;
 
@@ -89,7 +119,7 @@ const getImageUrl = (imagePath) => {
 const ProjectImage = ({ src, alt, thumbnail }) => {
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
-  
+
   const imageSource = useMemo(() => {
     if (src) return getImageUrl(src);
     if (thumbnail) return getImageUrl(thumbnail);
@@ -159,28 +189,28 @@ const ALL_COLUMNS = [
 // ==================== HELPER FUNCTIONS ====================
 const getLocationString = (project) => {
   const parts = [];
-  
+
   if (project.LocationName) parts.push(project.LocationName);
   if (project.BuildingName) parts.push(project.BuildingName);
   if (project.CityName) parts.push(project.CityName);
   else if (project.city_id) parts.push(`City #${project.city_id}`);
-  
+
   if (project.StateName) parts.push(project.StateName);
-  
-  return parts.join(', ') || 'N/A';
+
+  return parts.join(", ") || "N/A";
 };
 
-// ==================== MAIN COMPONENT ====================
-export default function ProjectsPage() {
-  // Auth state
+// ==================== MAIN CONTENT COMPONENT ====================
+function ProjectsContent() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [admin, setAdmin] = useState(null);
   const [logoutLoading, setLogoutLoading] = useState(false);
 
-  // Page state
   const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(null);
   const [error, setError] = useState(null);
   const [total, setTotal] = useState(0);
@@ -189,12 +219,11 @@ export default function ProjectsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [listingTypeFilter, setListingTypeFilter] = useState("all");
   const [search, setSearch] = useState("");
-  
-  // Pagination
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
   const [showCount, setShowCount] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Sorting
   const [sortBy, setSortBy] = useState("id");
   const [sortOrder, setSortOrder] = useState("desc");
 
@@ -206,28 +235,35 @@ export default function ProjectsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
+  const loadingToastRef = useRef(null);
+  const isFirstLoad = useRef(true);
+
   // ==================== TOAST HELPERS ====================
-  const showSuccess = (message) => {
+  const showSuccess = useCallback((message) => {
     toast.success(message, {
       duration: 3000,
       position: "top-right",
-      style: { background: '#10B981', color: '#fff', fontWeight: '500' },
+      style: { background: "#10B981", color: "#fff", fontWeight: "500" },
     });
-  };
+  }, []);
 
-  const showError = (message) => {
+  const showError = useCallback((message) => {
     toast.error(message, {
       duration: 4000,
       position: "top-right",
-      style: { background: '#EF4444', color: '#fff', fontWeight: '500' },
+      style: { background: "#EF4444", color: "#fff", fontWeight: "500" },
     });
-  };
-
-  const showLoading = (message) => {
-    return toast.loading(message, { position: "top-right" });
-  };
+  }, []);
 
   // ==================== AUTHENTICATION ====================
+  const handleAuthFailure = useCallback(() => {
+    logoutAll();
+    setAdmin(null);
+    setIsAuthenticated(false);
+    setAuthLoading(false);
+    window.location.href = "/admin/login";
+  }, []);
+
   const checkAuth = useCallback(async () => {
     try {
       const sessionType = getCurrentSessionType();
@@ -290,27 +326,19 @@ export default function ProjectsPage() {
       showError("Authentication failed. Please login again.");
       handleAuthFailure();
     }
-  }, []);
-
-  const handleAuthFailure = useCallback(() => {
-    logoutAll();
-    setAdmin(null);
-    setIsAuthenticated(false);
-    setAuthLoading(false);
-    window.location.href = "/admin/login";
-  }, []);
+  }, [handleAuthFailure, showError]);
 
   const handleLogout = useCallback(async () => {
     setLogoutLoading(true);
-    const logoutToast = showLoading("Logging out...");
-    
+    const logoutToast = toast.loading("Logging out...", { position: "top-right" });
+
     try {
       const token = getAdminToken();
       await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {});
-      
+
       toast.dismiss(logoutToast);
       showSuccess("Logged out successfully");
     } catch (err) {
@@ -323,159 +351,201 @@ export default function ProjectsPage() {
       window.location.href = "/admin/login";
       setLogoutLoading(false);
     }
-  }, []);
+  }, [showSuccess, showError]);
 
-  // API Helper
-  const apiRequest = useCallback(async (endpoint, options = {}) => {
-    const token = getAdminToken();
-
-    if (!token) {
-      window.location.href = "/admin/login";
-      throw new Error("Please login to continue");
-    }
-
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        ...options.headers,
-      },
-    });
-
-    if (response.status === 401) {
-      logoutAll();
-      window.location.href = "/admin/login";
-      throw new Error("Session expired. Please login again.");
-    }
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: "Network error" }));
-      throw new Error(error.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
-  }, []);
-
-  // ==================== FETCH PROJECTS ====================
-  const fetchProjects = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const loadingToast = showLoading("Loading projects...");
-
-      const params = new URLSearchParams();
-
-      if (statusFilter === "active") params.append("status", "1");
-      else if (statusFilter === "inactive") params.append("status", "0");
-
-      if (activeTab === "sale") params.append("listing_type", "sale");
-      else if (activeTab === "rent") params.append("listing_type", "rent");
-      else if (activeTab === "featured") params.append("featured_only", "true");
-      else if (activeTab === "verified") params.append("verified_only", "true");
-      else if (activeTab === "my" && admin) params.append("user_id", admin.id);
-
-      if (listingTypeFilter !== "all") params.append("listing_type", listingTypeFilter);
-
-      if (search.trim()) params.append("search", search.trim());
-
-      params.append("sort_by", sortBy);
-      params.append("sort_order", sortOrder);
-      params.append("limit", "1000"); // Load enough for client pagination if needed, or implement server pagination properly
-
+  const apiRequest = useCallback(
+    async (endpoint, options = {}) => {
       const token = getAdminToken();
-      const response = await axios.get(`${API_BASE_URL}/api/v1/projects?${params.toString()}`, {
-        headers: { 
+
+      if (!token) {
+        window.location.href = "/admin/login";
+        throw new Error("Please login to continue");
+      }
+
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
+          ...options.headers,
         },
-        withCredentials: true,
       });
 
-      toast.dismiss(loadingToast);
+      if (response.status === 401) {
+        logoutAll();
+        window.location.href = "/admin/login";
+        throw new Error("Session expired. Please login again.");
+      }
 
-      if (response.data.success) {
-        // *** KEY FIX: Check multiple possible keys for the data array ***
-        let projectsData = 
-          response.data.projects || 
-          response.data.listings || 
-          response.data.data || 
-          [];
-        
-        // Sorting fallback
-        projectsData = projectsData.sort((a, b) => {
-           // Basic sort by ID descending if no specific sort logic provided by API
-           return sortOrder === "desc" ? b.id - a.id : a.id - b.id;
-        });
-        
-        setProjects(projectsData);
-        setTotal(response.data.pagination?.total || response.data.total || projectsData.length);
-        
-        if (projectsData.length === 0) {
-          // Only show error if we expected results but got none, 
-          // but for an empty state, we usually handle it in UI
-          console.log("No projects found in response");
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: "Network error" }));
+        throw new Error(error.message || `HTTP error! status: ${response.status}`);
+      }
+
+      return response.json();
+    },
+    []
+  );
+
+  // ==================== FETCH PROJECTS ====================
+  const fetchProjects = useCallback(
+    async (options = {}) => {
+      const { isRefresh = false, showToast = true } = options;
+
+      try {
+        setError(null);
+
+        if (isFirstLoad.current) {
+          setInitialLoading(true);
+        } else if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
         }
-      } else {
-        setProjects([]);
-        setTotal(0);
+
+        if (showToast && !isFirstLoad.current) {
+          loadingToastRef.current = toast.loading(
+            isRefresh ? "Refreshing projects..." : "Loading projects...",
+            { position: "top-right" }
+          );
+        }
+
+        const params = new URLSearchParams();
+
+        if (statusFilter === "active") params.append("status", "1");
+        else if (statusFilter === "inactive") params.append("status", "0");
+
+        if (activeTab === "sale") params.append("listing_type", "sale");
+        else if (activeTab === "rent") params.append("listing_type", "rent");
+        else if (activeTab === "featured") params.append("featured_only", "true");
+        else if (activeTab === "verified") params.append("verified_only", "true");
+        else if (activeTab === "my" && admin) params.append("user_id", admin.id);
+
+        if (listingTypeFilter !== "all") params.append("listing_type", listingTypeFilter);
+
+        if (debouncedSearch.trim()) params.append("search", debouncedSearch.trim());
+
+        params.append("sort_by", sortBy);
+        params.append("sort_order", sortOrder);
+        params.append("limit", "1000");
+
+        const token = getAdminToken();
+        const response = await axios.get(`${API_BASE_URL}/api/v1/projects?${params.toString()}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          withCredentials: true,
+        });
+
+        if (loadingToastRef.current) {
+          toast.dismiss(loadingToastRef.current);
+          loadingToastRef.current = null;
+        }
+
+        if (response.data.success) {
+          let projectsData =
+            response.data.projects || response.data.listings || response.data.data || [];
+
+          projectsData = projectsData.sort((a, b) => {
+            if (sortBy === "id") {
+              return sortOrder === "desc" ? b.id - a.id : a.id - b.id;
+            }
+            return 0;
+          });
+
+          setProjects(projectsData);
+          setTotal(response.data.pagination?.total || response.data.total || projectsData.length);
+
+          if (isRefresh && showToast) {
+            showSuccess(`${projectsData.length} projects loaded`);
+          }
+        } else {
+          setProjects([]);
+          setTotal(0);
+        }
+
+        isFirstLoad.current = false;
+      } catch (err) {
+        console.error("Fetch projects error:", err);
+
+        if (loadingToastRef.current) {
+          toast.dismiss(loadingToastRef.current);
+          loadingToastRef.current = null;
+        }
+
+        if (err.response?.status === 401) {
+          showError("Session expired. Please login again.");
+          handleAuthFailure();
+        } else {
+          const errorMsg = err.response?.data?.message || "Failed to load projects";
+          setError(errorMsg);
+          showError(errorMsg);
+        }
+      } finally {
+        setInitialLoading(false);
+        setLoading(false);
+        setRefreshing(false);
       }
-    } catch (err) {
-      console.error("Fetch projects error:", err);
-      if (err.response?.status === 401) {
-        showError("Session expired. Please login again.");
-        handleAuthFailure();
-      } else {
-        const errorMsg = err.response?.data?.message || "Failed to load projects";
-        setError(errorMsg);
-        showError(errorMsg);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [activeTab, statusFilter, listingTypeFilter, search, admin, handleAuthFailure, sortBy, sortOrder]);
+    },
+    [
+      activeTab,
+      statusFilter,
+      listingTypeFilter,
+      debouncedSearch,
+      admin,
+      handleAuthFailure,
+      sortBy,
+      sortOrder,
+      showSuccess,
+      showError,
+    ]
+  );
 
   // ==================== DELETE HANDLERS ====================
-  const handleDelete = async (id) => {
-    const deleteToast = showLoading("Deleting project...");
-    try {
-      setDeleteLoading(id);
-      await apiRequest(`/api/v1/projects/${id}`, { method: "DELETE" });
-      setProjects((prev) => prev.filter((p) => p.id !== id));
-      setTotal((prev) => prev - 1);
-      
-      toast.dismiss(deleteToast);
-      showSuccess("Project deleted successfully!");
-      
-      setShowDeleteModal(false);
-      setDeleteTarget(null);
-    } catch (err) {
-      console.error("Delete Error:", err);
-      toast.dismiss(deleteToast);
-      showError(err.message || "Error deleting project");
-    } finally {
-      setDeleteLoading(null);
-    }
-  };
+  const handleDelete = useCallback(
+    async (id) => {
+      const deleteToast = toast.loading("Deleting project...", { position: "top-right" });
+      try {
+        setDeleteLoading(id);
+        await apiRequest(`/api/v1/projects/${id}`, { method: "DELETE" });
+        setProjects((prev) => prev.filter((p) => p.id !== id));
+        setTotal((prev) => prev - 1);
 
-  const handleDeleteConfirm = () => {
+        toast.dismiss(deleteToast);
+        showSuccess("Project deleted successfully!");
+
+        setShowDeleteModal(false);
+        setDeleteTarget(null);
+      } catch (err) {
+        console.error("Delete Error:", err);
+        toast.dismiss(deleteToast);
+        showError(err.message || "Error deleting project");
+      } finally {
+        setDeleteLoading(null);
+      }
+    },
+    [apiRequest, showSuccess, showError]
+  );
+
+  const handleDeleteConfirm = useCallback(() => {
     if (!deleteTarget) return;
     handleDelete(deleteTarget.id);
-  };
+  }, [deleteTarget, handleDelete]);
 
-  const bulkDeleteProjects = async () => {
+  const bulkDeleteProjects = useCallback(async () => {
     if (!confirm(`Are you sure you want to delete ${selectedProjects.size} projects?`)) return;
 
-    const deleteToast = showLoading("Deleting projects...");
+    const deleteToast = toast.loading("Deleting projects...", { position: "top-right" });
     try {
       setLoading(true);
       const token = getAdminToken();
 
       const response = await axios.delete(`${API_BASE_URL}/api/v1/projects/bulk`, {
         data: { project_ids: Array.from(selectedProjects) },
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         withCredentials: true,
       });
@@ -485,8 +555,9 @@ export default function ProjectsPage() {
       if (response.data.success) {
         setProjects((prev) => prev.filter((p) => !selectedProjects.has(p.id)));
         setTotal((prev) => Math.max(0, prev - selectedProjects.size));
+        const deletedCount = selectedProjects.size;
         setSelectedProjects(new Set());
-        showSuccess(`${selectedProjects.size} projects deleted successfully!`);
+        showSuccess(`${deletedCount} projects deleted successfully!`);
       }
     } catch (err) {
       console.error("Bulk delete error:", err);
@@ -495,7 +566,7 @@ export default function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedProjects, showSuccess, showError]);
 
   // ==================== EFFECTS ====================
   useEffect(() => {
@@ -503,47 +574,69 @@ export default function ProjectsPage() {
   }, [checkAuth]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchProjects();
+    if (isAuthenticated && isFirstLoad.current) {
+      fetchProjects({ showToast: false });
     }
-  }, [fetchProjects, isAuthenticated]);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated && !isFirstLoad.current) {
+      setCurrentPage(1);
+      fetchProjects({ showToast: true });
+    }
+  }, [activeTab, statusFilter, listingTypeFilter, sortBy, sortOrder]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setCurrentPage(1);
-      if (isAuthenticated) {
-        fetchProjects();
-      }
+      setDebouncedSearch(search);
     }, 500);
+
     return () => clearTimeout(timer);
   }, [search]);
 
-  // ==================== HANDLERS ====================
-  const handleEdit = (id) => {
-    // Check if router is available, otherwise fallback to window.location
-    if (typeof window !== 'undefined') {
-       window.location.href = `/admin/projects/edit/${id}`;
+  useEffect(() => {
+    if (isAuthenticated && !isFirstLoad.current) {
+      setCurrentPage(1);
+      fetchProjects({ showToast: true });
     }
-  };
-  
-  const handleView = (id) => {
-    if (typeof window !== 'undefined') {
+  }, [debouncedSearch]);
+
+  // ==================== HANDLERS ====================
+  const handleEdit = useCallback((id) => {
+    if (typeof window !== "undefined") {
+      window.location.href = `/admin/projects/edit/${id}`;
+    }
+  }, []);
+
+  const handleView = useCallback((id) => {
+    if (typeof window !== "undefined") {
       window.open(`/projects/${id}`, "_blank");
     }
-  };
-  
-  const handleAddProject = () => {
-    if (typeof window !== 'undefined') {
+  }, []);
+
+  const handleAddProject = useCallback(() => {
+    if (typeof window !== "undefined") {
       window.location.href = "/admin/projects/add";
     }
-  };
+  }, []);
 
-  const handleRefresh = () => {
-    fetchProjects();
-  };
+  const handleRefresh = useCallback(() => {
+    fetchProjects({ isRefresh: true, showToast: true });
+  }, [fetchProjects]);
 
-  const handleExport = () => {
-    const headers = ["ID", "Project Name", "Price", "Bedrooms", "Location", "Status", "Type", "Developer", "Views", "Created At"];
+  const handleExport = useCallback(() => {
+    const headers = [
+      "ID",
+      "Project Name",
+      "Price",
+      "Bedrooms",
+      "Location",
+      "Status",
+      "Type",
+      "Developer",
+      "Views",
+      "Created At",
+    ];
     const csvData = projects.map((p) => [
       p.id,
       `"${(p.ProjectName || "").replace(/"/g, '""')}"`,
@@ -565,9 +658,9 @@ export default function ProjectsPage() {
     link.download = `projects_export_${new Date().toISOString().split("T")[0]}.csv`;
     link.click();
     showSuccess("Export completed!");
-  };
+  }, [projects, showSuccess]);
 
-  const formatPrice = (price) => {
+  const formatPrice = useCallback((price) => {
     if (!price || price === 0) return "Price on request";
     return new Intl.NumberFormat("en-AE", {
       style: "currency",
@@ -575,9 +668,9 @@ export default function ProjectsPage() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(price);
-  };
+  }, []);
 
-  const formatDate = (dateString) => {
+  const formatDate = useCallback((dateString) => {
     if (!dateString) return "-";
     try {
       const date = new Date(dateString);
@@ -589,9 +682,9 @@ export default function ProjectsPage() {
     } catch {
       return dateString;
     }
-  };
+  }, []);
 
-  const toggleColumn = (columnId) => {
+  const toggleColumn = useCallback((columnId) => {
     setVisibleColumns((prev) => {
       const next = new Set(prev);
       if (next.has(columnId)) {
@@ -601,28 +694,11 @@ export default function ProjectsPage() {
       }
       return next;
     });
-  };
-  
-  const isVisible = (columnId) => visibleColumns.has(columnId);
+  }, []);
 
-  const toggleSelectAll = () => {
-    if (selectedProjects.size === paginatedProjects.length) {
-      setSelectedProjects(new Set());
-    } else {
-      setSelectedProjects(new Set(paginatedProjects.map((p) => p.id)));
-    }
-  };
-
-  const toggleSelect = (id) => {
-    setSelectedProjects((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
+  const isVisible = useCallback((columnId) => visibleColumns.has(columnId), [visibleColumns]);
 
   // ==================== FILTERED & PAGINATED DATA ====================
-  // Ensure we have an array
   const filteredProjects = useMemo(() => {
     return Array.isArray(projects) ? projects.filter((p) => p && p.id) : [];
   }, [projects]);
@@ -634,7 +710,24 @@ export default function ProjectsPage() {
 
   const totalPages = Math.ceil(filteredProjects.length / showCount);
 
-  // ==================== LOADING STATE ====================
+  // ==================== SELECTION HANDLERS ====================
+  const toggleSelectAll = useCallback(() => {
+    if (selectedProjects.size === paginatedProjects.length) {
+      setSelectedProjects(new Set());
+    } else {
+      setSelectedProjects(new Set(paginatedProjects.map((p) => p.id)));
+    }
+  }, [selectedProjects.size, paginatedProjects]);
+
+  const toggleSelect = useCallback((id) => {
+    setSelectedProjects((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  // ==================== LOADING STATES ====================
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -643,9 +736,7 @@ export default function ProjectsPage() {
           <div className="relative">
             <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
           </div>
-          <p className="mt-4 text-gray-600 font-medium">
-            Verifying authentication...
-          </p>
+          <p className="mt-4 text-gray-600 font-medium">Verifying authentication...</p>
         </div>
       </div>
     );
@@ -655,18 +746,45 @@ export default function ProjectsPage() {
     return null;
   }
 
+  if (initialLoading) {
+    return (
+      <>
+        <Toaster position="top-right" reverseOrder={false} />
+        <AdminNavbar
+          admin={admin}
+          isAuthenticated={isAuthenticated}
+          onLogout={handleLogout}
+          logoutLoading={logoutLoading}
+        />
+        <div className="min-h-screen bg-gray-100 pt-4">
+          <div className="p-3">
+            <div className="bg-white border border-gray-300 rounded p-8">
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="relative">
+                  <div className="w-12 h-12 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin" />
+                </div>
+                <p className="mt-4 text-gray-600 font-medium">Loading projects...</p>
+                <p className="mt-2 text-gray-400 text-sm">Please wait while we fetch your data</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
-      <Toaster 
+      <Toaster
         position="top-right"
         reverseOrder={false}
         gutter={8}
         toastOptions={{
           duration: 4000,
-          style: { background: '#363636', color: '#fff' },
+          style: { background: "#363636", color: "#fff" },
         }}
       />
-      
+
       <AdminNavbar
         admin={admin}
         isAuthenticated={isAuthenticated}
@@ -675,22 +793,13 @@ export default function ProjectsPage() {
       />
 
       <div className="min-h-screen bg-gray-100 pt-4">
-        {/* Delete Modal */}
         {showDeleteModal && deleteTarget && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div
-              className="absolute inset-0 bg-black/50"
-              onClick={() => setShowDeleteModal(false)}
-            />
+            <div className="absolute inset-0 bg-black/50" onClick={() => setShowDeleteModal(false)} />
             <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
               <div className="flex items-center justify-between px-6 py-4 border-b">
-                <h3 className="text-lg font-semibold text-gray-800">
-                  Delete Project
-                </h3>
-                <button
-                  onClick={() => setShowDeleteModal(false)}
-                  className="p-1 hover:bg-gray-100 rounded"
-                >
+                <h3 className="text-lg font-semibold text-gray-800">Delete Project</h3>
+                <button onClick={() => setShowDeleteModal(false)} className="p-1 hover:bg-gray-100 rounded">
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
@@ -711,11 +820,7 @@ export default function ProjectsPage() {
                     disabled={deleteLoading}
                     className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
                   >
-                    {deleteLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-4 h-4" />
-                    )}
+                    {deleteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                     Delete
                   </button>
                 </div>
@@ -724,22 +829,13 @@ export default function ProjectsPage() {
           </div>
         )}
 
-        {/* Overview Dropdown Modal */}
         {showOverviewDropdown && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div
-              className="absolute inset-0"
-              onClick={() => setShowOverviewDropdown(false)}
-            />
+            <div className="absolute inset-0" onClick={() => setShowOverviewDropdown(false)} />
             <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl border border-gray-300">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-                <h3 className="text-sm font-medium text-gray-800">
-                  Show / Hide Column in Listing
-                </h3>
-                <button
-                  onClick={() => setShowOverviewDropdown(false)}
-                  className="p-1 hover:bg-gray-100 rounded"
-                >
+                <h3 className="text-sm font-medium text-gray-800">Show / Hide Column in Listing</h3>
+                <button onClick={() => setShowOverviewDropdown(false)} className="p-1 hover:bg-gray-100 rounded">
                   <X className="w-4 h-4 text-gray-500" />
                 </button>
               </div>
@@ -777,7 +873,6 @@ export default function ProjectsPage() {
         )}
 
         <div className="p-3">
-          {/* Controls */}
           <div className="bg-white border border-gray-300 rounded-t p-3">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -792,11 +887,11 @@ export default function ProjectsPage() {
 
                 <button
                   onClick={handleRefresh}
-                  disabled={loading}
+                  disabled={loading || refreshing}
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-                  Refresh
+                  <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+                  {refreshing ? "Refreshing..." : "Refresh"}
                 </button>
 
                 <button
@@ -836,7 +931,6 @@ export default function ProjectsPage() {
               </div>
             </div>
 
-            {/* Tabs & Filters */}
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2">
                 {[
@@ -850,7 +944,8 @@ export default function ProjectsPage() {
                   <button
                     key={t.key}
                     onClick={() => setActiveTab(t.key)}
-                    className={`px-3 py-1.5 text-xs rounded border transition-colors ${
+                    disabled={loading}
+                    className={`px-3 py-1.5 text-xs rounded border transition-colors disabled:opacity-50 ${
                       activeTab === t.key
                         ? "bg-gray-800 border-gray-800 text-white font-medium"
                         : "bg-gray-100 border-gray-200 text-gray-700 hover:bg-white"
@@ -865,7 +960,8 @@ export default function ProjectsPage() {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  disabled={loading}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
                 >
                   <option value="all">All Status</option>
                   <option value="active">Active</option>
@@ -875,7 +971,8 @@ export default function ProjectsPage() {
                 <select
                   value={listingTypeFilter}
                   onChange={(e) => setListingTypeFilter(e.target.value)}
-                  className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  disabled={loading}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
                 >
                   <option value="all">All Types</option>
                   <option value="sale">Sale</option>
@@ -903,21 +1000,24 @@ export default function ProjectsPage() {
                 ))}
               </select>
               <span className="ml-2">entries</span>
-              <span className="ml-4 text-gray-500">Total: {total} projects</span>
+              <span className="ml-4 text-gray-500">
+                Total: {total} projects
+                {loading && !refreshing && (
+                  <span className="ml-2 inline-flex items-center">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  </span>
+                )}
+              </span>
             </div>
           </div>
 
-          {/* Bulk Actions */}
           {selectedProjects.size > 0 && (
             <div className="bg-blue-50 border border-blue-200 border-t-0 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm text-blue-900">
                 <strong>{selectedProjects.size}</strong> projects selected
               </div>
               <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setSelectedProjects(new Set())} 
-                  className="text-sm underline text-blue-700"
-                >
+                <button onClick={() => setSelectedProjects(new Set())} className="text-sm underline text-blue-700">
                   Clear Selection
                 </button>
                 <button
@@ -932,25 +1032,23 @@ export default function ProjectsPage() {
             </div>
           )}
 
-          {/* Table */}
-          <div
-            className="border border-gray-300 border-t-0"
-            style={{ backgroundColor: "rgb(236,237,238)" }}
-          >
-            {loading && projects.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-8 h-8 border-3 border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
-                <p className="mt-4 text-gray-600">Loading projects...</p>
+          <div className="border border-gray-300 border-t-0 relative" style={{ backgroundColor: "rgb(236,237,238)" }}>
+            {(loading || refreshing) && filteredProjects.length > 0 && (
+              <div className="absolute inset-0 bg-white/60 z-10 flex items-center justify-center">
+                <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-lg shadow-lg">
+                  <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                  <span className="text-gray-700 font-medium">
+                    {refreshing ? "Refreshing..." : "Loading..."}
+                  </span>
+                </div>
               </div>
-            ) : filteredProjects.length === 0 ? (
+            )}
+
+            {filteredProjects.length === 0 && !loading ? (
               <div className="text-center py-12">
                 <Building2 className="w-10 h-10 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-600">No projects found</p>
-                {search && (
-                  <p className="text-sm text-gray-500 mt-1">
-                    Try a different search term
-                  </p>
-                )}
+                {debouncedSearch && <p className="text-sm text-gray-500 mt-1">Try a different search term</p>}
                 <button
                   onClick={handleAddProject}
                   className="mt-4 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -966,23 +1064,16 @@ export default function ProjectsPage() {
                       <th className="w-10 px-4 py-3">
                         <input
                           type="checkbox"
-                          checked={
-                            selectedProjects.size === paginatedProjects.length &&
-                            paginatedProjects.length > 0
-                          }
+                          checked={selectedProjects.size === paginatedProjects.length && paginatedProjects.length > 0}
                           onChange={toggleSelectAll}
                           className="w-4 h-4 rounded border-gray-300"
                         />
                       </th>
                       {isVisible("id") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          ID
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">ID</th>
                       )}
                       {isVisible("picture") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Picture
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Picture</th>
                       )}
                       {isVisible("project_name") && (
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
@@ -990,97 +1081,67 @@ export default function ProjectsPage() {
                         </th>
                       )}
                       {isVisible("status") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Status
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Status</th>
                       )}
                       {isVisible("type") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Type
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Type</th>
                       )}
                       {isVisible("price") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Price
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Price</th>
                       )}
                       {isVisible("beds") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Beds
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Beds</th>
                       )}
                       {isVisible("location") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Location
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Location</th>
                       )}
                       {isVisible("building") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Building
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Building</th>
                       )}
                       {isVisible("developer") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Developer
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Developer</th>
                       )}
                       {isVisible("featured") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Featured
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Featured</th>
                       )}
                       {isVisible("verified") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Verified
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Verified</th>
                       )}
                       {isVisible("area") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Area
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Area</th>
                       )}
                       {isVisible("units") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Units
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Units</th>
                       )}
                       {isVisible("completion") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Completion
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Completion</th>
                       )}
                       {isVisible("views") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Views
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Views</th>
                       )}
                       {isVisible("contacts") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Contacts
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Contacts</th>
                       )}
                       {isVisible("created_at") && (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                          Created
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Created</th>
                       )}
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Action
-                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedProjects.map((project) => {
                       const statusInfo = project.status === 1 ? STATUS_OPTIONS[0] : STATUS_OPTIONS[1];
                       const listingInfo =
-                        LISTING_TYPE_OPTIONS.find((l) => l.value.toLowerCase() === project.listing_type?.toLowerCase()) || 
-                        { value: project.listing_type, label: project.listing_type || 'N/A', pill: 'bg-gray-100 text-gray-800' };
+                        LISTING_TYPE_OPTIONS.find(
+                          (l) => l.value.toLowerCase() === project.listing_type?.toLowerCase()
+                        ) || {
+                          value: project.listing_type,
+                          label: project.listing_type || "N/A",
+                          pill: "bg-gray-100 text-gray-800",
+                        };
 
                       return (
-                        <tr
-                          key={project.id}
-                          className="border-b border-gray-200 hover:bg-gray-50"
-                        >
+                        <tr key={project.id} className="border-b border-gray-200 hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <input
                               type="checkbox"
@@ -1102,10 +1163,10 @@ export default function ProjectsPage() {
                           {isVisible("picture") && (
                             <td className="px-4 py-3">
                               <div className="w-12 h-10 rounded overflow-hidden border border-gray-200 bg-gray-100">
-                                <ProjectImage 
-                                  src={project.featured_image} 
+                                <ProjectImage
+                                  src={project.featured_image}
                                   thumbnail={project.thumbnail}
-                                  alt={project.ProjectName} 
+                                  alt={project.ProjectName}
                                 />
                               </div>
                             </td>
@@ -1126,14 +1187,18 @@ export default function ProjectsPage() {
                           )}
                           {isVisible("status") && (
                             <td className="px-4 py-3">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.pill}`}>
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.pill}`}
+                              >
                                 {statusInfo.label}
                               </span>
                             </td>
                           )}
                           {isVisible("type") && (
                             <td className="px-4 py-3">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${listingInfo.pill}`}>
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${listingInfo.pill}`}
+                              >
                                 {listingInfo.label}
                               </span>
                             </td>
@@ -1162,9 +1227,7 @@ export default function ProjectsPage() {
                             </td>
                           )}
                           {isVisible("building") && (
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              {project.BuildingName || "-"}
-                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{project.BuildingName || "-"}</td>
                           )}
                           {isVisible("developer") && (
                             <td className="px-4 py-3 text-sm text-gray-600">
@@ -1221,9 +1284,7 @@ export default function ProjectsPage() {
                             </td>
                           )}
                           {isVisible("created_at") && (
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              {formatDate(project.created_at)}
-                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{formatDate(project.created_at)}</td>
                           )}
                           <td className="px-4 py-3 text-sm">
                             <div className="flex items-center gap-2">
@@ -1267,18 +1328,16 @@ export default function ProjectsPage() {
             )}
           </div>
 
-          {/* Pagination */}
           {filteredProjects.length > 0 && (
             <div className="flex items-center justify-between bg-white border border-gray-300 border-t-0 px-4 py-3 rounded-b">
               <div className="text-sm text-gray-600">
                 Showing {(currentPage - 1) * showCount + 1} to{" "}
-                {Math.min(currentPage * showCount, filteredProjects.length)} of{" "}
-                {filteredProjects.length} entries
+                {Math.min(currentPage * showCount, filteredProjects.length)} of {filteredProjects.length} entries
               </div>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                  disabled={currentPage === 1}
+                  disabled={currentPage === 1 || loading}
                   className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Previous
@@ -1294,12 +1353,13 @@ export default function ProjectsPage() {
                   } else {
                     pageNum = currentPage - 2 + i;
                   }
-                  
+
                   return (
                     <button
                       key={pageNum}
                       onClick={() => setCurrentPage(pageNum)}
-                      className={`px-3 py-1.5 border rounded text-sm ${
+                      disabled={loading}
+                      className={`px-3 py-1.5 border rounded text-sm disabled:opacity-50 ${
                         currentPage === pageNum
                           ? "bg-blue-600 text-white border-blue-600"
                           : "border-gray-300 hover:bg-gray-50"
@@ -1310,10 +1370,8 @@ export default function ProjectsPage() {
                   );
                 })}
                 <button
-                  onClick={() =>
-                    setCurrentPage((p) => Math.min(p + 1, totalPages))
-                  }
-                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages || loading}
                   className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
@@ -1324,5 +1382,26 @@ export default function ProjectsPage() {
         </div>
       </div>
     </>
+  );
+}
+
+// ==================== MAIN PAGE EXPORT WITH SUSPENSE ====================
+export default function ProjectsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="relative">
+              <div className="w-16 h-16 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto" />
+            </div>
+            <p className="mt-4 text-gray-600 font-medium">Loading dashboard...</p>
+            <p className="mt-2 text-gray-400 text-sm">Please wait</p>
+          </div>
+        </div>
+      }
+    >
+      <ProjectsContent />
+    </Suspense>
   );
 }

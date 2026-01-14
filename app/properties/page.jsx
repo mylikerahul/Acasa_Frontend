@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import axios from "axios";
 import toast from "react-hot-toast";
 import {
@@ -145,53 +145,43 @@ const utils = {
 
   isNumericId: (value) => /^\d+$/.test(value),
 
-  // Transform API response to normalized property object
   transformProperty: (raw) => ({
     id: raw.id,
     title: raw.title || raw.property_title || raw.PropertyName || raw.name || "Untitled Property",
     slug: raw.slug || raw.property_slug || raw.seo_slug || raw.id.toString(),
     description: raw.description || raw.Description || "",
     
-    // Type & Purpose
     type: raw.type || raw.property_type || raw.PropertyType || "",
     purpose: raw.purpose || raw.listing_type || raw.Purpose || "",
     
-    // Location
     location: raw.location || raw.LocationName || raw.address || "",
     city: raw.city || raw.CityName || raw.city_name || "",
     community: raw.community || raw.CommunityName || "",
     building: raw.building_name || raw.BuildingName || "",
     
-    // Pricing
     price: Number(raw.price) || 0,
     priceTo: Number(raw.price_to) || Number(raw.max_price) || 0,
     currency: raw.currency || "AED",
     
-    // Details
     bedrooms: Number(raw.bedrooms) || Number(raw.bedroom) || Number(raw.Bedrooms) || 0,
     bathrooms: Number(raw.bathrooms) || Number(raw.bathroom) || Number(raw.Bathrooms) || 0,
     area: Number(raw.area) || Number(raw.size) || Number(raw.Area) || 0,
     areaUnit: raw.area_unit || raw.size_unit || "Sq.Ft.",
     parking: Number(raw.parking) || Number(raw.parking_spaces) || 0,
     
-    // Status
     featured: raw.featured === 1 || raw.featured === "1" || raw.is_featured === true,
     verified: raw.verified === 1 || raw.verified === "1",
     status: raw.status || 1,
     
-    // Media
     image: raw.image || raw.featured_image || raw.main_image,
     images: utils.parseJSON(raw.images) || utils.parseCommaSeparated(raw.gallery_images) || [],
     
-    // Agent/Developer
     agentName: raw.agent_name || "",
     agentId: raw.agent_id,
     developerId: raw.developer_id,
     
-    // Amenities
     amenities: utils.parseJSON(raw.amenities) || [],
     
-    // Dates
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
   }),
@@ -226,7 +216,6 @@ const useInfiniteProperties = (filters) => {
         page: pageNum,
       };
 
-      // Add filters
       if (filters.search) params.search = filters.search;
       if (filters.bedrooms) params.bedrooms = filters.bedrooms;
       if (filters.bathrooms) params.bathrooms = filters.bathrooms;
@@ -240,7 +229,6 @@ const useInfiniteProperties = (filters) => {
         if (max) params.price_max = max;
       }
 
-      // Sorting
       if (filters.sort) {
         switch (filters.sort) {
           case "newest":
@@ -270,16 +258,11 @@ const useInfiniteProperties = (filters) => {
         }
       }
 
-      console.log("🔍 Fetching properties:", params);
-
       const { data } = await axios.get(`${API_URL}/api/v1/properties`, {
         params,
         timeout: 15000,
       });
 
-      console.log("📦 Properties API Response:", data);
-
-      // Handle different response structures
       let propertiesList = [];
       let totalCount = 0;
 
@@ -297,11 +280,9 @@ const useInfiniteProperties = (filters) => {
         totalCount = data.length;
       }
 
-      // Filter & transform
       const activeProperties = propertiesList.filter((p) => p.status === 1 || p.status === "1");
       let transformedProperties = activeProperties.map(utils.transformProperty);
 
-      // Client-side filtering
       if (filters.search) {
         const searchLower = filters.search.toLowerCase();
         transformedProperties = transformedProperties.filter(
@@ -351,7 +332,6 @@ const useInfiniteProperties = (filters) => {
         });
       }
 
-      // Client-side sorting
       if (filters.sort) {
         transformedProperties.sort((a, b) => {
           switch (filters.sort) {
@@ -402,13 +382,11 @@ const useInfiniteProperties = (filters) => {
     }
   }, [filters]);
 
-  // Initial fetch
   useEffect(() => {
     setState((prev) => ({ ...prev, properties: [], page: 1, hasMore: true }));
     fetchProperties(1, false);
   }, [filters.search, filters.bedrooms, filters.bathrooms, filters.type, filters.purpose, filters.priceRange, filters.sort, filters.location]);
 
-  // Load more function
   const loadMore = useCallback(() => {
     if (!state.loadingMore && state.hasMore) {
       fetchProperties(state.page + 1, true);
@@ -422,7 +400,6 @@ const useInfiniteProperties = (filters) => {
   };
 };
 
-// Intersection Observer Hook for Infinite Scroll
 const useIntersectionObserver = (callback, options = {}) => {
   const ref = useRef(null);
 
@@ -456,7 +433,6 @@ const useFavorites = () => {
   const [favorites, setFavorites] = useState(new Set());
   const [savingId, setSavingId] = useState(null);
 
-  // Load favorites from localStorage on mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem("property_favorites");
@@ -483,7 +459,6 @@ const useFavorites = () => {
         toast.success("Removed from favorites");
       }
 
-      // Save to localStorage
       try {
         localStorage.setItem("property_favorites", JSON.stringify([...next]));
       } catch (e) {
@@ -514,7 +489,7 @@ const useImageLoader = () => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// UI COMPONENTS
+// UI COMPONENTS (Same as before - keeping them as is)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const SkeletonCard = () => (
@@ -755,7 +730,6 @@ const FiltersBar = ({
   onToggleMobileFilters,
 }) => (
   <div className="space-y-4 mb-8">
-    {/* Desktop Filters */}
     <div className="hidden lg:flex items-center gap-3 flex-wrap">
       <SearchBar
         value={filters.search}
@@ -790,7 +764,6 @@ const FiltersBar = ({
       <ViewToggle view={view} onChange={onViewChange} />
     </div>
 
-    {/* Mobile Filters */}
     <div className="lg:hidden space-y-4">
       <div className="flex items-center gap-3">
         <SearchBar
@@ -854,7 +827,6 @@ const FiltersBar = ({
       )}
     </div>
 
-    {/* Active Filters Tags */}
     <ActiveFilters
       filters={filters}
       onRemove={(key) => onFilterChange(key, "")}
@@ -865,14 +837,11 @@ const FiltersBar = ({
 
 const PurposeBadge = ({ purpose }) => {
   if (!purpose) return null;
-
   const isRent = purpose.toLowerCase().includes("rent");
   
   return (
     <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-      isRent 
-        ? "bg-blue-100 text-blue-700" 
-        : "bg-green-100 text-green-700"
+      isRent ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"
     }`}>
       For {isRent ? "Rent" : "Sale"}
     </span>
@@ -881,7 +850,6 @@ const PurposeBadge = ({ purpose }) => {
 
 const TypeBadge = ({ type }) => {
   if (!type) return null;
-  
   return (
     <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-semibold capitalize">
       {type}
@@ -973,7 +941,6 @@ const PropertyCard = ({
       tabIndex={0}
       onKeyDown={(e) => e.key === "Enter" && onClick(property)}
     >
-      {/* Image Section */}
       <div className="relative aspect-[4/3] bg-gray-100 overflow-hidden">
         {property.featured && <FeaturedBadge />}
         {property.verified && !property.featured && <VerifiedBadge />}
@@ -991,7 +958,6 @@ const PropertyCard = ({
           onClick={handleFavoriteClick}
         />
 
-        {/* Price Badge */}
         <div className="absolute bottom-4 left-4 z-10 bg-white/95 backdrop-blur-sm px-4 py-2 rounded-lg shadow-md">
           <p className="text-lg font-bold text-black">
             {property.currency} {utils.formatPrice(property.price)}
@@ -1001,24 +967,19 @@ const PropertyCard = ({
           )}
         </div>
 
-        {/* Overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300" />
       </div>
 
-      {/* Content Section */}
       <div className="p-5">
-        {/* Badges */}
         <div className="flex items-center gap-2 mb-3">
           <PurposeBadge purpose={property.purpose} />
           <TypeBadge type={property.type} />
         </div>
 
-        {/* Title */}
         <h3 className="text-lg font-semibold text-black mb-2 truncate group-hover:text-gray-700 transition-colors">
           {property.title}
         </h3>
 
-        {/* Location */}
         <div className="flex items-center text-gray-600 mb-4">
           <MapPin size={14} className="mr-1.5 flex-shrink-0 text-gray-400" />
           <span className="text-sm truncate">
@@ -1026,7 +987,6 @@ const PropertyCard = ({
           </span>
         </div>
 
-        {/* Property Details */}
         <div className="flex items-center gap-4 text-sm text-gray-600 pb-4 border-b border-gray-100">
           {property.bedrooms > 0 && (
             <div className="flex items-center gap-1">
@@ -1048,7 +1008,6 @@ const PropertyCard = ({
           )}
         </div>
 
-        {/* CTA */}
         <div className="flex items-center justify-between pt-4">
           <span className="text-sm text-gray-500">View Details</span>
           <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center
@@ -1085,7 +1044,6 @@ const PropertyListCard = ({
       className="group bg-white rounded-2xl overflow-hidden shadow-md border border-gray-200 
         cursor-pointer hover:shadow-xl transition-all duration-300 flex flex-col md:flex-row"
     >
-      {/* Image Section */}
       <div className="relative w-full md:w-80 lg:w-96 aspect-[4/3] md:aspect-auto md:h-auto bg-gray-100 flex-shrink-0 overflow-hidden">
         {property.featured && <FeaturedBadge />}
         {property.verified && !property.featured && <VerifiedBadge />}
@@ -1104,27 +1062,22 @@ const PropertyListCard = ({
         />
       </div>
 
-      {/* Content Section */}
       <div className="flex-1 p-6 flex flex-col justify-between">
         <div>
-          {/* Badges */}
           <div className="flex items-center gap-2 mb-3">
             <PurposeBadge purpose={property.purpose} />
             <TypeBadge type={property.type} />
           </div>
 
-          {/* Title */}
           <h3 className="text-xl font-semibold text-black mb-2 group-hover:text-gray-700 transition-colors">
             {property.title}
           </h3>
 
-          {/* Location */}
           <div className="flex items-center text-gray-600 mb-4">
             <MapPin size={14} className="mr-1.5 flex-shrink-0 text-gray-400" />
             <span className="text-sm">{property.location || property.city || "Location TBA"}</span>
           </div>
 
-          {/* Property Details */}
           <div className="flex items-center gap-6 text-sm text-gray-600">
             {property.bedrooms >= 0 && (
               <div className="flex items-center gap-1.5">
@@ -1153,7 +1106,6 @@ const PropertyListCard = ({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">
@@ -1185,34 +1137,80 @@ const EndOfResults = ({ count }) => (
   </div>
 );
 
+const ScrollToTopButton = () => {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setVisible(window.scrollY > 500);
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  if (!visible) return null;
+
+  return (
+    <button
+      onClick={scrollToTop}
+      className="fixed bottom-8 right-8 w-12 h-12 bg-black text-white rounded-full shadow-lg 
+        flex items-center justify-center hover:bg-gray-800 transition-all duration-300
+        hover:scale-110 z-50"
+      aria-label="Scroll to top"
+    >
+      <ChevronDown size={24} className="rotate-180" />
+    </button>
+  );
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
+// MAIN COMPONENT (WITH FIX)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function PropertiesPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
-  // View state
+  // ✅ Client-side URL parser (no useSearchParams)
+  const getInitialFiltersFromUrl = () => {
+    if (typeof window === "undefined") {
+      return {
+        search: "",
+        bedrooms: "",
+        bathrooms: "",
+        priceRange: "",
+        type: "",
+        purpose: "",
+        location: "",
+        sort: "newest",
+      };
+    }
+
+    const params = new URLSearchParams(window.location.search);
+
+    return {
+      search: params.get("search") || "",
+      bedrooms: params.get("bedrooms") || "",
+      bathrooms: params.get("bathrooms") || "",
+      priceRange: params.get("price") || "",
+      type: params.get("type") || "",
+      purpose: params.get("purpose") || "",
+      location: params.get("location") || "",
+      sort: params.get("sort") || "newest",
+    };
+  };
+
   const [view, setView] = useState("grid");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
-  // Filter state
-  const [filters, setFilters] = useState({
-    search: searchParams.get("search") || "",
-    bedrooms: searchParams.get("bedrooms") || "",
-    bathrooms: searchParams.get("bathrooms") || "",
-    priceRange: searchParams.get("price") || "",
-    type: searchParams.get("type") || "",
-    purpose: searchParams.get("purpose") || "",
-    location: searchParams.get("location") || "",
-    sort: searchParams.get("sort") || "newest",
-  });
+  const [filters, setFilters] = useState(() => getInitialFiltersFromUrl());
 
-  // Debounced search
   const [searchInput, setSearchInput] = useState(filters.search);
 
-  // Fetch properties with infinite scroll
   const {
     properties,
     loading,
@@ -1224,18 +1222,15 @@ export default function PropertiesPage() {
     refetch,
   } = useInfiniteProperties(filters);
 
-  // Favorites & Image loading
   const { savingId, toggleFavorite, isFavorite } = useFavorites();
   const { handleError: handleImageError, hasError: imageHasError } = useImageLoader();
 
-  // Intersection observer for infinite scroll
   const loadMoreRef = useIntersectionObserver(() => {
     if (!loading && !loadingMore && hasMore) {
       loadMore();
     }
   });
 
-  // Debounced search handler
   useEffect(() => {
     const timer = setTimeout(() => {
       if (searchInput !== filters.search) {
@@ -1244,9 +1239,8 @@ export default function PropertiesPage() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [searchInput, filters.search]);
 
-  // Update URL with filters
   useEffect(() => {
     const params = new URLSearchParams();
 
@@ -1265,7 +1259,6 @@ export default function PropertiesPage() {
     window.history.replaceState({}, "", newUrl);
   }, [filters]);
 
-  // Check if any filters are active
   const hasActiveFilters = useMemo(() => {
     return Boolean(
       filters.search ||
@@ -1278,7 +1271,6 @@ export default function PropertiesPage() {
     );
   }, [filters]);
 
-  // Handlers
   const handleFilterChange = useCallback((key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -1314,7 +1306,6 @@ export default function PropertiesPage() {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      {/* Hero Section */}
       <section className="bg-black text-white py-16 px-6 md:px-14">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-4xl md:text-5xl font-bold mb-4">
@@ -1327,7 +1318,6 @@ export default function PropertiesPage() {
         </div>
       </section>
 
-      {/* Main Content */}
       <section className="py-10 px-6 md:px-14">
         <div className="max-w-7xl mx-auto">
           <PageHeader totalCount={totalCount} loading={loading && properties.length === 0} />
@@ -1344,7 +1334,6 @@ export default function PropertiesPage() {
             onToggleMobileFilters={() => setShowMobileFilters(!showMobileFilters)}
           />
 
-          {/* Error State */}
           {error && (
             <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between">
               <p className="text-red-600">Error: {error}</p>
@@ -1357,15 +1346,12 @@ export default function PropertiesPage() {
             </div>
           )}
 
-          {/* Initial Loading State */}
           {loading && properties.length === 0 && <LoadingGrid />}
 
-          {/* Empty State */}
           {!loading && properties.length === 0 && (
             <EmptyState onReset={handleReset} hasFilters={hasActiveFilters} />
           )}
 
-          {/* Properties Grid/List */}
           {properties.length > 0 && (
             <>
               {view === "grid" ? (
@@ -1402,14 +1388,12 @@ export default function PropertiesPage() {
                 </div>
               )}
 
-              {/* Infinite Scroll Trigger */}
               {hasMore && (
                 <div ref={loadMoreRef} className="py-4">
                   {loadingMore && <LoadingMore />}
                 </div>
               )}
 
-              {/* End of Results */}
               {!hasMore && properties.length > 0 && (
                 <EndOfResults count={properties.length} />
               )}
@@ -1418,40 +1402,7 @@ export default function PropertiesPage() {
         </div>
       </section>
 
-      {/* Scroll to Top Button */}
       <ScrollToTopButton />
     </main>
   );
 }
-
-// Scroll to Top Button Component
-const ScrollToTopButton = () => {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setVisible(window.scrollY > 500);
-    };
-
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  if (!visible) return null;
-
-  return (
-    <button
-      onClick={scrollToTop}
-      className="fixed bottom-8 right-8 w-12 h-12 bg-black text-white rounded-full shadow-lg 
-        flex items-center justify-center hover:bg-gray-800 transition-all duration-300
-        hover:scale-110 z-50"
-      aria-label="Scroll to top"
-    >
-      <ChevronDown size={24} className="rotate-180" />
-    </button>
-  );
-};

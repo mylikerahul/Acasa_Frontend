@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -16,19 +16,14 @@ import { Toaster, toast } from "react-hot-toast";
 import {
   getAdminToken,
   isAdminTokenValid,
-  getCurrentSessionType,
   logoutAll,
-} from "../../../utils/auth"; // Assuming this path is correct
-import AdminNavbar from "../dashboard/header/DashboardNavbar"; // Assuming this path is correct
+  getCurrentSessionType,
+} from "../../../utils/auth";
+import AdminNavbar from "../dashboard/header/DashboardNavbar";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"; // Ensure a fallback for development
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const AGENT_IMAGE_FIELD = "image";
 
-// IMPORTANT: Update this to match your actual agent model's image field name
-// If your agent model has a field like 'avatar' or 'profile_picture', use that.
-// For now, assuming a field named 'avatar' in the backend agent model.
-const AGENT_IMAGE_FIELD = "avatar"; // Example: 'avatar', 'image_url', 'profile_pic'
-
-// Helper function to get the full name of an agent
 const getAgentFullName = (agent) => {
   if (agent.name) return agent.name;
   if (agent.first_name && agent.last_name) return `${agent.first_name} ${agent.last_name}`;
@@ -37,17 +32,16 @@ const getAgentFullName = (agent) => {
   return "-";
 };
 
-// All columns that can be displayed/toggled
 const ALL_COLUMNS = [
   { id: "id", label: "ID", key: "id" },
-  { id: "picture", label: "Picture", key: AGENT_IMAGE_FIELD }, // Using the defined image field
-  { id: "full_name", label: "Full Name", key: "name" }, // Maps to 'name' or derived from 'first_name', 'last_name'
+  { id: "picture", label: "Picture", key: AGENT_IMAGE_FIELD },
+  { id: "full_name", label: "Full Name", key: "name" },
   { id: "email", label: "E-mail", key: "email" },
-  { id: "mobile", label: "Mobile", key: "mobile" }, // Using 'mobile' from backend model
-  { id: "designation", label: "Designation", key: "designation" }, // New field from agent model
-  { id: "company", label: "Company", key: "company" }, // New field from agent model
-  { id: "nationality", label: "Nationality", key: "nationality" }, // New field from agent model
-  { id: "orn_number", label: "ORN", key: "orn_number" }, // New field from agent model
+  { id: "mobile", label: "Mobile", key: "mobile" },
+  { id: "designation", label: "Designation", key: "designation" },
+  { id: "company", label: "Company", key: "company" },
+  { id: "nationality", label: "Nationality", key: "nationality" },
+  { id: "orn", label: "ORN", key: "orn" },
   { id: "status", label: "Status", key: "status" },
   { id: "created_at", label: "Created At", key: "created_at" },
 ];
@@ -55,32 +49,27 @@ const ALL_COLUMNS = [
 export default function AgentsPage() {
   const router = useRouter();
 
-  // Auth State
   const [admin, setAdmin] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [logoutLoading, setLogoutLoading] = useState(false);
 
-  // Agent State Management
   const [agents, setAgents] = useState([]);
-  const [stats, setStats] = useState(null); // Adjusted to match agent stats
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
-  const [showCount, setShowCount] = useState(10); // Corresponds to 'limit'
-  const [currentPage, setCurrentPage] = useState(1); // Corresponds to 'page'
+  const [showCount, setShowCount] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState(
-    new Set(["id", "picture", "full_name", "email", "mobile", "status"]) // Default visible columns
+    new Set(["id", "picture", "full_name", "email", "mobile", "status"])
   );
   const [showOverviewDropdown, setShowOverviewDropdown] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(null);
   const [selectedAgents, setSelectedAgents] = useState(new Set());
-  const [totalAgentsCount, setTotalAgentsCount] = useState(0); // Total count from backend
-  const [totalPages, setTotalPages] = useState(0); // Total pages from backend
+  const [totalAgentsCount, setTotalAgentsCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null); // { id: number, type: 'single' | 'bulk' }
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
-  // ==================== TOAST HELPERS ====================
   const showSuccess = (message) => {
     toast.success(message, {
       duration: 3000,
@@ -119,11 +108,7 @@ export default function AgentsPage() {
     });
   };
 
-  // ==================== AUTHENTICATION ====================
   const verifyToken = async (token) => {
-    // This endpoint should be a general user/admin token verification.
-    // If your user model has a verify-token route, use it. Otherwise,
-    // ensure this function aligns with how you verify admin tokens.
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
         headers: {
@@ -133,7 +118,6 @@ export default function AgentsPage() {
       });
 
       if (!response.ok) {
-        // Specifically check for 401 if it means token invalid/expired
         if (response.status === 401) {
           throw new Error("Unauthorized");
         }
@@ -142,7 +126,6 @@ export default function AgentsPage() {
 
       return await response.json();
     } catch (error) {
-      console.error("Token verification failed:", error);
       throw error;
     }
   };
@@ -152,7 +135,7 @@ export default function AgentsPage() {
       const sessionType = getCurrentSessionType();
 
       if (sessionType !== "admin") {
-        showError(sessionType === "user" ? "Please login as admin to access this dashboard" : "Please login to access dashboard");
+        showError("Please login to access dashboard");
         handleAuthFailure();
         return;
       }
@@ -171,22 +154,16 @@ export default function AgentsPage() {
       }
 
       try {
-        await verifyToken(token); // Verify token with backend
+        await verifyToken(token);
       } catch (verifyError) {
-        if (verifyError.message === "Unauthorized") {
-          showError("Invalid or expired token. Please login again.");
-        } else {
-          showError("Token verification failed. Please login again.");
-        }
         handleAuthFailure();
         return;
       }
 
-      // Decode token for client-side user info
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));
         if (payload.userType !== "admin") {
-          showError("Invalid session type. Please login as admin.");
+          showError("Invalid session type");
           handleAuthFailure();
           return;
         }
@@ -197,19 +174,15 @@ export default function AgentsPage() {
           email: payload.email,
           role: payload.role || "admin",
           userType: payload.userType,
-          avatar: null, // Assuming avatar might come from a user profile endpoint if needed
+          avatar: null,
         };
 
         setAdmin(adminData);
         setIsAuthenticated(true);
       } catch (e) {
-        console.error("Token decode error:", e);
-        showError("Invalid session. Please login again.");
         handleAuthFailure();
       }
     } catch (error) {
-      console.error("Auth check error:", error);
-      showError("Authentication failed. Please login again.");
       handleAuthFailure();
     } finally {
       setAuthLoading(false);
@@ -220,7 +193,7 @@ export default function AgentsPage() {
     logoutAll();
     setAdmin(null);
     setIsAuthenticated(false);
-    router.push("/admin/login"); // Use router.push for Next.js navigation
+    router.push("/admin/login");
   }, [router]);
 
   const handleLogout = useCallback(async () => {
@@ -229,18 +202,16 @@ export default function AgentsPage() {
     
     try {
       const token = getAdminToken();
-      // Assuming a general logout endpoint for users/admins
       await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {}); // Catch to prevent errors from non-existent logout endpoint
+      }).catch(() => {});
       
       toast.dismiss(logoutToastId);
       showSuccess("Logged out successfully");
     } catch (err) {
-      console.error("Logout error:", err);
       toast.dismiss(logoutToastId);
-      showError("Logout failed. Please try again.");
+      showError("Logout failed");
     } finally {
       logoutAll();
       setAdmin(null);
@@ -250,7 +221,6 @@ export default function AgentsPage() {
     }
   }, [router]);
 
-  // API Helper
   const apiRequest = useCallback(async (endpoint, options = {}) => {
     const token = getAdminToken();
 
@@ -271,85 +241,46 @@ export default function AgentsPage() {
     if (response.status === 401) {
       logoutAll();
       router.push("/admin/login");
-      throw new Error("Session expired. Please login again.");
+      throw new Error("Session expired");
     }
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: "Network error or malformed response" }));
+      const errorData = await response.json().catch(() => ({ message: "Network error" }));
       throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
     }
 
     return response.json();
   }, [router]);
 
-  // ==================== FETCH AGENTS ====================
   const fetchAgents = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
-      const loadingToastId = showLoadingToast("Loading agents...");
-
       const params = new URLSearchParams();
-      if (search.trim()) params.append("search", search.trim());
-      params.append("page", currentPage.toString());
-      params.append("limit", showCount.toString());
-      params.append("orderBy", "created_at"); // Default for admin view
-      params.append("order", "DESC"); // Default for admin view
-      // If you want to filter by status for admin, you can add a `status` state here:
-      // if (statusFilter !== undefined) params.append("status", statusFilter.toString());
-
-      // Corrected endpoint
-      const response = await apiRequest(`/api/v1/agents?${params.toString()}`);
-
-      toast.dismiss(loadingToastId);
+      if (search.trim()) params.append("q", search.trim());
       
-      if (response.success) {
-        const { agents: fetchedAgents, total, page, limit, totalPages: backendTotalPages } = response.data;
-        setAgents(fetchedAgents);
-        setTotalAgentsCount(total);
-        setCurrentPage(page);
-        setShowCount(limit);
-        setTotalPages(backendTotalPages);
-        
-        if (fetchedAgents.length === 0 && search.trim() === "") {
-          showError("No agents found in the system.");
-        } else if (fetchedAgents.length === 0 && search.trim() !== "") {
-          showError("No agents found matching your search criteria.");
-        }
-      } else {
-        throw new Error(response.message || "Failed to fetch agents.");
+      let endpoint = `/api/v1/agents`;
+      if (search.trim()) {
+         endpoint = `/api/v1/agents/search?${params.toString()}`;
       }
+
+      const response = await apiRequest(endpoint);
+
+      if (response.success) {
+        const fetchedAgents = response.agents || [];
+        setAgents(fetchedAgents);
+        setTotalAgentsCount(response.count || fetchedAgents.length);
+        
+        // Manual pagination if backend doesn't support it directly on search
+        const calculatedTotalPages = Math.ceil((response.count || fetchedAgents.length) / showCount);
+        setTotalPages(calculatedTotalPages);
+      } 
     } catch (err) {
-      console.error("Error fetching agents:", err);
-      setError(err.message);
-      showError("Failed to load agents: " + err.message);
+      showError("Failed to load agents");
     } finally {
       setLoading(false);
     }
-  }, [search, currentPage, showCount, apiRequest]);
+  }, [search, showCount, apiRequest]);
 
-  // ==================== FETCH STATS ====================
-  const fetchStats = useCallback(async () => {
-    try {
-      // Corrected endpoint
-      const response = await apiRequest("/api/agents/admin/stats");
-      
-      if (response.success && response.data) {
-        const { total_agents, active_agents, inactive_agents, total_companies, total_nationalities } = response.data;
-        setStats({
-          total: total_agents,
-          active: active_agents,
-          inactive: inactive_agents,
-          companies: total_companies,
-          nationalities: total_nationalities,
-        });
-      }
-    } catch (err) {
-      console.error("Error fetching agent stats:", err);
-    }
-  }, [apiRequest]);
-
-  // ==================== LIFECYCLE HOOKS ====================
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
@@ -357,47 +288,32 @@ export default function AgentsPage() {
   useEffect(() => {
     if (isAuthenticated) {
       fetchAgents();
-      fetchStats();
     }
-  }, [isAuthenticated, fetchAgents, fetchStats]); // Include fetchAgents/Stats in dependency array
+  }, [isAuthenticated, fetchAgents]);
 
-  // Debounce search input
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (isAuthenticated) { // Only fetch if authenticated
-        setCurrentPage(1); // Reset to first page on new search
+      if (isAuthenticated) {
+        setCurrentPage(1);
         fetchAgents();
       }
     }, 500);
     return () => clearTimeout(timer);
   }, [search, isAuthenticated, fetchAgents]);
 
-  // Handle page/limit changes
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchAgents();
-    }
-  }, [currentPage, showCount, isAuthenticated, fetchAgents]);
-
-
-  // ==================== HANDLERS ====================
   const handleDelete = async (id) => {
     const deleteToastId = showLoadingToast("Deleting agent...");
     try {
       setDeleteLoading(id);
-      // Corrected endpoint to use soft delete
-      await apiRequest(`/api/agents/admin/${id}`, { method: "DELETE" });
+      await apiRequest(`/api/v1/agents/${id}`, { method: "DELETE" });
       
       toast.dismiss(deleteToastId);
-      showSuccess("Agent deleted successfully (status set to inactive)!");
+      showSuccess("Agent deleted successfully");
       
       setShowDeleteModal(false);
       setDeleteTarget(null);
-      // Re-fetch agents and stats after successful deletion
       fetchAgents();
-      fetchStats();
     } catch (err) {
-      console.error("Delete Error:", err);
       toast.dismiss(deleteToastId);
       showError(err.message || "Error deleting agent");
     } finally {
@@ -409,10 +325,6 @@ export default function AgentsPage() {
     if (deleteTarget?.type === "single" && deleteTarget.id) {
       handleDelete(deleteTarget.id);
     }
-    // Implement bulk delete if you have a bulk delete API endpoint
-    // else if (deleteTarget?.type === "bulk") {
-    //   handleBulkDelete(Array.from(selectedAgents));
-    // }
   };
 
   const handleEdit = (id) => {
@@ -424,14 +336,12 @@ export default function AgentsPage() {
   };
   
   const handleView = (id) => {
-    router.push(`/admin/agents/${id}`); // Assuming you have a view page for agents
+    router.push(`/admin/agents/${id}`);
   };
 
-  // ==================== UTILITY FUNCTIONS ====================
   const getImageUrl = (image) => {
     if (!image) return null;
     if (image.startsWith("http")) return image;
-    // Assuming images are stored under /uploads/agents
     return `${API_BASE_URL}/uploads/agents/${image}`;
   };
 
@@ -458,7 +368,6 @@ export default function AgentsPage() {
     }
   };
 
-  // ==================== COLUMN MANAGEMENT ====================
   const toggleColumn = (columnId) => {
     setVisibleColumns((prev) => {
       const next = new Set(prev);
@@ -473,9 +382,8 @@ export default function AgentsPage() {
 
   const isVisible = (columnId) => visibleColumns.has(columnId);
 
-  // ==================== ROW SELECTION ====================
   const toggleSelectAll = () => {
-    if (selectedAgents.size === agents.length) { // Using 'agents' directly here, as pagination is server-side
+    if (selectedAgents.size === agents.length) {
       setSelectedAgents(new Set());
     } else {
       setSelectedAgents(new Set(agents.map((a) => a.id)));
@@ -490,7 +398,6 @@ export default function AgentsPage() {
     });
   };
 
-  // ==================== LOADING STATE & AUTH PROTECTION ====================
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -508,7 +415,6 @@ export default function AgentsPage() {
   }
 
   if (!isAuthenticated || !admin) {
-    // This state should ideally not be reached if handleAuthFailure redirects
     return null;
   }
 
@@ -518,8 +424,6 @@ export default function AgentsPage() {
         position="top-right"
         reverseOrder={false}
         gutter={8}
-        containerClassName=""
-        containerStyle={{}}
         toastOptions={{
           duration: 4000,
           style: {
@@ -567,7 +471,6 @@ export default function AgentsPage() {
       />
 
       <div className="min-h-screen bg-gray-100 pt-4">
-        {/* Delete Modal */}
         {showDeleteModal && deleteTarget && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
             <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
@@ -584,7 +487,7 @@ export default function AgentsPage() {
               </div>
               <div className="p-6">
                 <p className="text-gray-600 mb-6">
-                  Are you sure you want to delete this agent? This action will set the agent's status to inactive.
+                  Are you sure you want to delete this agent?
                 </p>
                 <div className="flex items-center gap-3 justify-end">
                   <button
@@ -596,7 +499,7 @@ export default function AgentsPage() {
                   </button>
                   <button
                     onClick={handleDeleteConfirm}
-                    disabled={deleteLoading === deleteTarget.id} // Disable if this specific agent is loading
+                    disabled={deleteLoading === deleteTarget.id}
                     className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
                   >
                     {deleteLoading === deleteTarget.id ? (
@@ -612,7 +515,6 @@ export default function AgentsPage() {
           </div>
         )}
 
-        {/* Overview Dropdown Modal */}
         {showOverviewDropdown && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
             <div
@@ -665,7 +567,6 @@ export default function AgentsPage() {
         )}
 
         <div className="p-3">
-          {/* Controls */}
           <div className="bg-white border border-gray-300 rounded-t p-3">
             <div className="flex items-center justify-between mb-3">
               <button
@@ -681,7 +582,7 @@ export default function AgentsPage() {
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Search by name, email, mobile, ORN"
+                    placeholder="Search by name, email, mobile"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="pl-4 pr-10 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-64"
@@ -710,7 +611,7 @@ export default function AgentsPage() {
                 value={showCount}
                 onChange={(e) => {
                   setShowCount(Number(e.target.value));
-                  setCurrentPage(1); // Reset page when limit changes
+                  setCurrentPage(1);
                 }}
                 className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
@@ -724,7 +625,6 @@ export default function AgentsPage() {
             </div>
           </div>
 
-          {/* Table */}
           <div
             className="border border-gray-300 border-t-0"
             style={{ backgroundColor: "rgb(236,237,238)" }}
@@ -799,7 +699,7 @@ export default function AgentsPage() {
                           Nationality
                         </th>
                       )}
-                      {isVisible("orn_number") && (
+                      {isVisible("orn") && (
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
                           ORN
                         </th>
@@ -846,7 +746,7 @@ export default function AgentsPage() {
                         {isVisible("picture") && (
                           <td className="px-4 py-3">
                             <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold">
-                              {agent[AGENT_IMAGE_FIELD] ? ( // Use the configured image field
+                              {agent[AGENT_IMAGE_FIELD] ? (
                                 <img
                                   src={getImageUrl(agent[AGENT_IMAGE_FIELD])}
                                   alt={getAgentFullName(agent)}
@@ -894,9 +794,9 @@ export default function AgentsPage() {
                             {agent.nationality || "-"}
                           </td>
                         )}
-                        {isVisible("orn_number") && (
+                        {isVisible("orn") && (
                           <td className="px-4 py-3 text-sm text-gray-600">
-                            {agent.orn_number || "-"}
+                            {agent.orn || "-"}
                           </td>
                         )}
                         {isVisible("status") && (
@@ -958,7 +858,6 @@ export default function AgentsPage() {
             )}
           </div>
 
-          {/* Pagination */}
           {totalAgentsCount > 0 && (
             <div className="flex items-center justify-between bg-white border border-gray-300 border-t-0 px-4 py-3 rounded-b">
               <div className="text-sm text-gray-600">
@@ -975,7 +874,6 @@ export default function AgentsPage() {
                   Previous
                 </button>
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
-                  // Only show a few page numbers around the current page
                   if (
                     pageNum === 1 ||
                     pageNum === totalPages ||

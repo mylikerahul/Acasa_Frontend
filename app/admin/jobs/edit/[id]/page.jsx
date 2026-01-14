@@ -1,1385 +1,840 @@
-// app/admin/jobs/[id]/edit/page.jsx
+// app/admin/jobs/edit/[id]/page.jsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import toast, { Toaster } from "react-hot-toast";
 import {
-  FiArrowLeft,
-  FiSave,
-  FiCheck,
-  FiAlertCircle,
-  FiEye,
-  FiTrash2,
-} from "react-icons/fi";
-import { Loader2, Search, Info, RotateCcw, ExternalLink } from "lucide-react";
+  ArrowLeft,
+  Save,
+  Loader2,
+  Briefcase,
+  MapPin,
+  Globe,
+  FileText,
+  Star,
+  Zap,
+  X,
+  AlertCircle,
+  CheckCircle,
+  Info,
+  Trash2,
+  Eye,
+} from "lucide-react";
+import { Toaster, toast } from "react-hot-toast";
+import AdminNavbar from "../../../dashboard/header/DashboardNavbar";
 import {
   getAdminToken,
   isAdminTokenValid,
   getCurrentSessionType,
   logoutAll,
-} from "../../../../utils/auth";
-import AdminNavbar from "../../../dashboard/header/DashboardNavbar";
+} from "../../../../../utils/auth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
-const TABS = [
-  { id: "details", label: "Job Details", icon: Info },
-  { id: "seo", label: "SEO", icon: Search },
+// ==================== CONSTANTS ====================
+const JOB_TYPES = [
+  { value: "Full-time", label: "Full-time" },
+  { value: "Part-time", label: "Part-time" },
+  { value: "Contract", label: "Contract" },
+  { value: "Freelance", label: "Freelance" },
+  { value: "Remote", label: "Remote" },
+  { value: "Internship", label: "Internship" },
 ];
 
-const JOB_TYPES = ["Remote", "Full-time", "Part-time", "Contract", "Freelance"];
-const STATUS_OPTIONS = ["active", "inactive", "closed"];
+const STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+  { value: "closed", label: "Closed" },
+  { value: "draft", label: "Draft" },
+];
 
+// ==================== MAIN COMPONENT ====================
 export default function EditJobPage() {
   const router = useRouter();
   const params = useParams();
-  const jobId = params?.id;
+  const jobId = params.id;
 
-  // Auth state
+  // Auth State
   const [admin, setAdmin] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
-  // Job state
-  const [job, setJob] = useState(null);
-  const [jobLoading, setJobLoading] = useState(true);
-  const [updateLoading, setUpdateLoading] = useState(false);
+  // Form State
+  const [formData, setFormData] = useState(null);
+  const [originalData, setOriginalData] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(true);
+  const [slugAvailable, setSlugAvailable] = useState(null);
+  const [checkingSlug, setCheckingSlug] = useState(false);
+
+  // UI State
+  const [activeTab, setActiveTab] = useState("basic");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // Form state
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    sub_title: "",
-    sub_description: "",
-    job_title: "",
-    city_name: "",
-    job_type: "Full-time",
-    about_team: "",
-    about_company: "",
-    responsibilities: "",
-    other_facility: "",
-    facebook: "",
-    linkedin: "",
-    twitter: "",
-    status: "active",
-    seo_title: "",
-    seo_permalink: "",
-    seo_description: "",
-    focus_keyword: "",
-  });
-
-  const [originalForm, setOriginalForm] = useState(null);
-  const [errors, setErrors] = useState({});
-  const [activeTab, setActiveTab] = useState("details");
-  const [showPreview, setShowPreview] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
-
-  // Fast navigate helper
-  const fastNavigate = (path) => {
-    router.push(path);
-  };
-
-  // Auth verification
+  // ==================== AUTH ====================
   useEffect(() => {
     const verifyAuth = async () => {
       try {
         const token = getAdminToken();
-        const sessionType = getCurrentSessionType();
-
-        if (!token || !isAdminTokenValid()) {
+        if (!token || !isAdminTokenValid() || getCurrentSessionType() !== "admin") {
           logoutAll();
-          fastNavigate("/admin/login");
+          router.replace("/admin/login");
           return;
         }
 
-        if (sessionType !== "admin") {
-          logoutAll();
-          fastNavigate("/admin/login");
-          return;
-        }
+        const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
+          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
+        });
 
-        try {
-          const response = await fetch(
-            `${API_BASE_URL}/api/v1/users/admin/verify-token`,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
-              credentials: "include",
-            }
-          );
-
-          if (!response.ok) throw new Error("Token verification failed");
-
+        if (response.ok) {
           const data = await response.json();
-
           if (data.success && data.admin) {
             setAdmin(data.admin);
             setIsAuthenticated(true);
-          } else {
-            const payload = JSON.parse(atob(token.split(".")[1]));
-            setAdmin({
-              id: payload.id,
-              name: payload.name,
-              email: payload.email,
-              role: payload.role || "admin",
-              userType: payload.userType,
-            });
-            setIsAuthenticated(true);
           }
-        } catch (verifyError) {
-          try {
-            const payload = JSON.parse(atob(token.split(".")[1]));
-            if (payload.userType === "admin") {
-              setAdmin({
-                id: payload.id,
-                name: payload.name,
-                email: payload.email,
-                role: payload.role || "admin",
-                userType: payload.userType,
-              });
-              setIsAuthenticated(true);
-            } else {
-              logoutAll();
-              fastNavigate("/admin/login");
-              return;
-            }
-          } catch {
-            logoutAll();
-            fastNavigate("/admin/login");
-            return;
+        } else {
+          const payload = JSON.parse(atob(token.split(".")[1]));
+          if (payload.userType === "admin") {
+            setAdmin({ id: payload.id, name: payload.name, email: payload.email });
+            setIsAuthenticated(true);
+          } else {
+            throw new Error("Not admin");
           }
         }
       } catch (error) {
         logoutAll();
-        fastNavigate("/admin/login");
+        router.replace("/admin/login");
       } finally {
         setAuthLoading(false);
       }
     };
 
     verifyAuth();
-  }, []);
+  }, [router]);
 
-  // Fetch job data
-  useEffect(() => {
-    const fetchJob = async () => {
-      if (!jobId) {
-        toast.error("Job ID is missing");
-        router.push("/admin/jobs");
-        return;
+  // ==================== API HELPER ====================
+  const apiRequest = useCallback(
+    async (endpoint, options = {}) => {
+      const token = getAdminToken();
+      if (!token) throw new Error("No token");
+
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          ...options.headers,
+        },
+      });
+
+      if (response.status === 401) {
+        logoutAll();
+        router.replace("/admin/login");
+        throw new Error("Session expired");
       }
 
-      if (!isAuthenticated) return;
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Request failed");
+      return data;
+    },
+    [router]
+  );
 
-      setJobLoading(true);
+  // ==================== FETCH JOB ====================
+  useEffect(() => {
+    const fetchJob = async () => {
+      if (!isAuthenticated || !jobId) return;
 
       try {
-        const token = getAdminToken();
-        const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-        });
+        setFetchLoading(true);
+        const data = await apiRequest(`/api/v1/jobs/id/${jobId}`);
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch job");
-        }
-
-        const data = await response.json();
-
-        if (data.success && data.job) {
-          setJob(data.job);
+        if (data.success && data.data) {
+          const job = data.data;
+          // Parse JSON fields if needed
+          const formattedJob = {
+            ...job,
+            featured: job.featured === 1 || job.featured === true,
+            urgent: job.urgent === 1 || job.urgent === true,
+            salary_min: job.salary_min || "",
+            salary_max: job.salary_max || "",
+            experience_min: job.experience_min || "",
+            experience_max: job.experience_max || "",
+          };
+          setFormData(formattedJob);
+          setOriginalData(formattedJob);
         } else {
           throw new Error("Job not found");
         }
-      } catch (error) {
-        toast.error(error.message || "Failed to load job");
-        setJob(null);
+      } catch (err) {
+        toast.error(err.message || "Failed to load job");
+        router.push("/admin/jobs");
       } finally {
-        setJobLoading(false);
+        setFetchLoading(false);
       }
     };
 
-    if (isAuthenticated) {
-      fetchJob();
-    }
-  }, [jobId, isAuthenticated, router]);
+    fetchJob();
+  }, [isAuthenticated, jobId, apiRequest, router]);
 
-  // Populate form when job data loads
-  useEffect(() => {
-    if (job) {
-      const formData = {
-        title: job.title || "",
-        description: job.description || "",
-        sub_title: job.sub_title || "",
-        sub_description: job.sub_description || "",
-        job_title: job.job_title || "",
-        city_name: job.city_name || "",
-        job_type: job.job_type || "Full-time",
-        about_team: job.about_team || "",
-        about_company: job.about_company || "",
-        responsibilities: job.responsibilities || "",
-        other_facility: job.other_facility || "",
-        facebook: job.facebook || "",
-        linkedin: job.linkedin || "",
-        twitter: job.twitter || "",
-        status: job.status || "active",
-        seo_title: job.seo_title || "",
-        seo_permalink: job.seo_permalink || job.slug || "",
-        seo_description: job.seo_description || "",
-        focus_keyword: job.focus_keyword || "",
-      };
-      setForm(formData);
-      setOriginalForm(formData);
-    }
-  }, [job]);
+  // ==================== HANDLERS ====================
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    const newValue = type === "checkbox" ? checked : value;
 
-  // Track changes
-  useEffect(() => {
-    if (originalForm) {
-      const changed = JSON.stringify(form) !== JSON.stringify(originalForm);
-      setHasChanges(changed);
-    }
-  }, [form, originalForm]);
+    setFormData((prev) => ({ ...prev, [name]: newValue }));
 
-  // Handle form change
-  const handleChange = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: "" }));
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: null }));
     }
   };
 
-  // Validate form
-  const validateForm = () => {
+  const checkSlugAvailability = async (slug) => {
+    if (!slug || slug.length < 3 || slug === originalData?.slug) {
+      setSlugAvailable(null);
+      return;
+    }
+
+    try {
+      setCheckingSlug(true);
+      const data = await apiRequest(`/api/v1/jobs/check-slug/${slug}?exclude_id=${jobId}`);
+      setSlugAvailable(data.available);
+    } catch (err) {
+      console.error("Slug check error:", err);
+    } finally {
+      setCheckingSlug(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!formData?.slug || formData.slug === originalData?.slug) {
+      setSlugAvailable(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      checkSlugAvailability(formData.slug);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [formData?.slug, originalData?.slug]);
+
+  const validate = () => {
     const newErrors = {};
 
-    if (!form.title.trim()) {
+    if (!formData.title?.trim()) {
       newErrors.title = "Title is required";
     }
 
-    if (!form.job_title.trim()) {
+    if (!formData.job_title?.trim()) {
       newErrors.job_title = "Job title is required";
     }
 
-    if (!form.description.trim()) {
-      newErrors.description = "Description is required";
-    } else if (form.description.trim().length < 50) {
-      newErrors.description = "Description should be at least 50 characters";
+    if (!formData.type) {
+      newErrors.type = "Job type is required";
+    }
+
+    if (formData.slug && formData.slug !== originalData?.slug && slugAvailable === false) {
+      newErrors.slug = "This slug is already taken";
+    }
+
+    if (formData.salary_min && formData.salary_max) {
+      if (Number(formData.salary_min) > Number(formData.salary_max)) {
+        newErrors.salary_min = "Minimum salary cannot be greater than maximum";
+      }
+    }
+
+    if (formData.experience_min && formData.experience_max) {
+      if (Number(formData.experience_min) > Number(formData.experience_max)) {
+        newErrors.experience_min = "Minimum experience cannot be greater than maximum";
+      }
     }
 
     setErrors(newErrors);
-
-    if (Object.keys(newErrors).length > 0) {
-      setActiveTab("details");
-    }
-
     return Object.keys(newErrors).length === 0;
   };
 
-  // Update job API call
-  const updateJobAPI = async (jobData) => {
-    const token = getAdminToken();
-
-    const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}`, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-      body: JSON.stringify(jobData),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || "Failed to update job");
-    }
-
-    return response.json();
-  };
-
-  // Delete job API call
-  const deleteJobAPI = async () => {
-    const token = getAdminToken();
-
-    const response = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || "Failed to delete job");
-    }
-
-    return response.json();
-  };
-
-  // Handle submit
   const handleSubmit = async (e) => {
-    e?.preventDefault();
+    e.preventDefault();
 
-    if (!validateForm()) {
-      toast.error("Please fill all required fields");
+    if (!validate()) {
+      toast.error("Please fix the errors before submitting");
       return;
     }
 
-    if (!jobId) {
-      toast.error("Job ID is missing");
-      return;
-    }
-
-    setUpdateLoading(true);
+    const toastId = toast.loading("Updating job...");
 
     try {
-      // Prepare job data
-      const jobData = {
-        title: form.title.trim(),
-        description: form.description.trim(),
-        sub_title: form.sub_title.trim() || null,
-        sub_description: form.sub_description.trim() || null,
-        job_title: form.job_title.trim(),
-        city_name: form.city_name.trim() || null,
-        job_type: form.job_type,
-        about_team: form.about_team.trim() || null,
-        about_company: form.about_company.trim() || null,
-        responsibilities: form.responsibilities.trim() || null,
-        other_facility: form.other_facility.trim() || null,
-        facebook: form.facebook.trim() || null,
-        linkedin: form.linkedin.trim() || null,
-        twitter: form.twitter.trim() || null,
-        status: form.status,
-        seo_title: form.seo_title.trim() || null,
-        seo_permalink: form.seo_permalink.trim() || null,
-        seo_description: form.seo_description.trim() || null,
-        focus_keyword: form.focus_keyword.trim() || null,
+      setLoading(true);
+
+      const submitData = {
+        ...formData,
+        salary_min: formData.salary_min ? Number(formData.salary_min) : null,
+        salary_max: formData.salary_max ? Number(formData.salary_max) : null,
+        experience_min: formData.experience_min ? Number(formData.experience_min) : null,
+        experience_max: formData.experience_max ? Number(formData.experience_max) : null,
+        featured: formData.featured ? 1 : 0,
+        urgent: formData.urgent ? 1 : 0,
       };
 
-      await updateJobAPI(jobData);
+      await apiRequest(`/api/v1/jobs/${jobId}`, {
+        method: "PUT",
+        body: JSON.stringify(submitData),
+      });
+
+      toast.dismiss(toastId);
       toast.success("Job updated successfully!");
+
       router.push("/admin/jobs");
-    } catch (error) {
-      toast.error(error.message || "Failed to update job");
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast.error(err.message || "Failed to update job");
     } finally {
-      setUpdateLoading(false);
+      setLoading(false);
     }
   };
 
-  // Handle reset form
-  const handleReset = () => {
-    if (originalForm) {
-      setForm(originalForm);
-      setErrors({});
-      toast.success("Form reset to original values");
-    }
-  };
-
-  // Handle delete
   const handleDelete = async () => {
-    setDeleteLoading(true);
+    const toastId = toast.loading("Deleting job...");
 
     try {
-      await deleteJobAPI();
+      setDeleteLoading(true);
+      await apiRequest(`/api/v1/jobs/${jobId}`, { method: "DELETE" });
+
+      toast.dismiss(toastId);
       toast.success("Job deleted successfully!");
-      setShowDeleteModal(false);
       router.push("/admin/jobs");
-    } catch (error) {
-      toast.error(error.message || "Failed to delete job");
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast.error(err.message || "Failed to delete job");
     } finally {
       setDeleteLoading(false);
+      setShowDeleteModal(false);
     }
   };
 
-  // SEO Checks
-  const seoChecks = [
-    {
-      label: "Add Focus Keyword to the SEO title",
-      passed:
-        form.focus_keyword &&
-        form.seo_title.toLowerCase().includes(form.focus_keyword.toLowerCase()),
-    },
-    {
-      label: "Add Focus Keyword to your SEO Meta Description",
-      passed:
-        form.focus_keyword &&
-        form.seo_description
-          .toLowerCase()
-          .includes(form.focus_keyword.toLowerCase()),
-    },
-    {
-      label: "Use Focus Keyword in the URL",
-      passed:
-        form.focus_keyword &&
-        form.seo_permalink
-          .toLowerCase()
-          .includes(form.focus_keyword.toLowerCase()),
-    },
-    {
-      label: "Use Focus Keyword in the content",
-      passed:
-        form.focus_keyword &&
-        form.description
-          .toLowerCase()
-          .includes(form.focus_keyword.toLowerCase()),
-    },
-    {
-      label: `Content is ${
-        form.description.split(/\s+/).filter(Boolean).length
-      } words long. Consider using at least 600 words.`,
-      passed: form.description.split(/\s+/).filter(Boolean).length >= 600,
-    },
-  ];
+  const handleLogout = useCallback(async () => {
+    setLogoutLoading(true);
+    try {
+      await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getAdminToken()}` },
+      }).catch(() => {});
+    } finally {
+      logoutAll();
+      window.location.href = "/admin/login";
+    }
+  }, []);
 
-  const passedChecks = seoChecks.filter((c) => c.passed).length;
-  const seoScore = Math.round((passedChecks / seoChecks.length) * 100);
+  const hasChanges = () => {
+    if (!formData || !originalData) return false;
+    return JSON.stringify(formData) !== JSON.stringify(originalData);
+  };
 
-  // Auth loading state
-  if (authLoading) {
+  // ==================== LOADING STATE ====================
+  if (authLoading || fetchLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Toaster />
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-900 mx-auto" />
-          <p className="mt-2 text-sm text-gray-600">Loading...</p>
+          <div className="w-16 h-16 border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-gray-600">
+            {authLoading ? "Verifying authentication..." : "Loading job..."}
+          </p>
         </div>
       </div>
     );
   }
 
-  // Not authenticated
-  if (!isAuthenticated) {
-    return null;
-  }
+  if (!isAuthenticated || !admin || !formData) return null;
 
-  // Job loading state
-  if (jobLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <AdminNavbar admin={admin} />
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center">
-            <Loader2 className="w-8 h-8 animate-spin text-gray-400 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">Loading job...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Job not found state
-  if (!job && !jobLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <AdminNavbar admin={admin} />
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center">
-            <FiAlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-lg font-medium text-gray-900 mb-2">
-              Job not found
-            </p>
-            <p className="text-sm text-gray-500 mb-4">
-              The job you're looking for doesn't exist or has been deleted.
-            </p>
-            <button
-              onClick={() => router.push("/admin/jobs")}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800"
-            >
-              <FiArrowLeft className="w-4 h-4" />
-              Back to Jobs
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const tabs = [
+    { id: "basic", label: "Basic Info", icon: FileText },
+    { id: "details", label: "Details", icon: Briefcase },
+    { id: "seo", label: "SEO", icon: Globe },
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <>
       <Toaster position="top-right" />
 
-      {/* Admin Navbar */}
-      <AdminNavbar admin={admin} />
+      <AdminNavbar
+        admin={admin}
+        isAuthenticated={isAuthenticated}
+        onLogout={handleLogout}
+        logoutLoading={logoutLoading}
+      />
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Delete Job</h3>
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                disabled={deleteLoading}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowDeleteModal(false)} />
+          <div className="relative w-full max-w-md bg-white rounded-xl shadow-2xl p-6">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Delete Job</h3>
+                <p className="text-sm text-gray-500">This action cannot be undone.</p>
+              </div>
             </div>
-            <p className="text-sm text-gray-600 mb-2">
-              Are you sure you want to delete this job?
-            </p>
-            <p className="text-sm font-medium text-gray-900 mb-4 p-3 bg-gray-50 rounded-lg">
-              "{form.title}"
-            </p>
-            <p className="text-xs text-red-600 mb-6">
-              This action cannot be undone.
-            </p>
-            <div className="flex items-center gap-3">
+            <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowDeleteModal(false)}
-                disabled={deleteLoading}
-                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDelete}
                 disabled={deleteLoading}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {deleteLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                Delete Job
+                {deleteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Preview Modal */}
-      {showPreview && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Job Preview
-              </h3>
+      <div className="min-h-screen bg-gray-100">
+        <div className="max-w-5xl mx-auto p-4 sm:p-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-4">
               <button
-                onClick={() => setShowPreview(false)}
-                className="text-gray-400 hover:text-gray-600"
+                onClick={() => router.push("/admin/jobs")}
+                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
               >
-                ✕
+                <ArrowLeft className="w-5 h-5" />
               </button>
-            </div>
-            <div className="p-6">
-              <div className="mb-4 flex items-center gap-2 flex-wrap">
-                <span
-                  className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                    form.status === "active"
-                      ? "bg-green-100 text-green-800"
-                      : form.status === "closed"
-                      ? "bg-red-100 text-red-800"
-                      : "bg-gray-100 text-gray-800"
-                  }`}
-                >
-                  {form.status}
-                </span>
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  {form.job_type}
-                </span>
-                {form.city_name && (
-                  <span className="text-sm text-gray-500">{form.city_name}</span>
-                )}
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">Edit Job</h1>
+                <p className="text-sm text-gray-500">ID: #{jobId}</p>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                {form.title || "Job Title"}
-              </h1>
-              {form.sub_title && (
-                <p className="text-lg text-gray-600 mb-4">{form.sub_title}</p>
-              )}
-              <p className="text-gray-700 mb-6 whitespace-pre-line">
-                {form.description || "Job description will appear here..."}
-              </p>
-
-              {form.responsibilities && (
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                    Responsibilities
-                  </h3>
-                  <p className="text-gray-700 whitespace-pre-line">
-                    {form.responsibilities}
-                  </p>
-                </div>
-              )}
-
-              {form.about_team && (
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                    About the Team
-                  </h3>
-                  <p className="text-gray-700 whitespace-pre-line">
-                    {form.about_team}
-                  </p>
-                </div>
-              )}
-
-              {form.about_company && (
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                    About Company
-                  </h3>
-                  <p className="text-gray-700 whitespace-pre-line">
-                    {form.about_company}
-                  </p>
-                </div>
-              )}
-
-              {form.other_facility && (
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                    Benefits & Facilities
-                  </h3>
-                  <p className="text-gray-700 whitespace-pre-line">
-                    {form.other_facility}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Header */}
-        <div className="mb-6">
-          <button
-            onClick={() => router.push("/admin/jobs")}
-            className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700 text-sm mb-4"
-          >
-            <FiArrowLeft className="w-4 h-4" />
-            Back to Jobs
-          </button>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-semibold text-gray-900">
-                  Edit Job
-                </h1>
-                {hasChanges && (
-                  <span className="px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
-                    Unsaved changes
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-gray-500 mt-1">
-                ID: {jobId} • Last updated:{" "}
-                {job?.updated_at
-                  ? new Date(job.updated_at).toLocaleDateString()
-                  : "N/A"}
-              </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowDeleteModal(true)}
-                disabled={updateLoading || deleteLoading}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
-              >
-                <FiTrash2 className="w-4 h-4" />
-                Delete
-              </button>
-              <button
-                onClick={handleReset}
-                disabled={updateLoading || !hasChanges}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-              >
-                <RotateCcw className="w-4 h-4" />
-                Reset
-              </button>
-              <button
-                onClick={() => setShowPreview(true)}
-                disabled={updateLoading}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-              >
-                <FiEye className="w-4 h-4" />
-                Preview
-              </button>
-              {job?.slug && (
+              {formData.slug && (
                 <a
-                  href={`/jobs/${job.slug}`}
+                  href={`/jobs/${formData.slug}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50"
                 >
-                  <ExternalLink className="w-4 h-4" />
-                  View Live
+                  <Eye className="w-4 h-4" />
+                  Preview
                 </a>
               )}
               <button
-                onClick={handleSubmit}
-                disabled={updateLoading || !hasChanges}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50"
+                onClick={() => setShowDeleteModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50"
               >
-                {updateLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <FiSave className="w-4 h-4" />
-                )}
-                Update Job
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={loading || !hasChanges()}
+                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {loading ? "Updating..." : "Update"}
               </button>
             </div>
           </div>
-        </div>
 
-        {/* Job Stats */}
-        {job && (
-          <div className="grid grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <p className="text-xs text-gray-500">Views</p>
-              <p className="text-xl font-semibold text-gray-900">
-                {job.views || 0}
-              </p>
-            </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <p className="text-xs text-gray-500">Status</p>
-              <p
-                className={`text-xl font-semibold ${
-                  job.status === "active"
-                    ? "text-green-600"
-                    : job.status === "closed"
-                    ? "text-red-600"
-                    : "text-gray-600"
-                }`}
-              >
-                {job.status?.charAt(0).toUpperCase() + job.status?.slice(1)}
-              </p>
-            </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <p className="text-xs text-gray-500">Created</p>
-              <p className="text-sm font-medium text-gray-900">
-                {job.created_at
-                  ? new Date(job.created_at).toLocaleDateString()
-                  : "N/A"}
-              </p>
-            </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <p className="text-xs text-gray-500">SEO Score</p>
-              <p
-                className={`text-xl font-semibold ${
-                  seoScore >= 80
-                    ? "text-green-600"
-                    : seoScore >= 50
-                    ? "text-yellow-600"
-                    : "text-red-600"
-                }`}
-              >
-                {seoScore}%
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="bg-white rounded-lg border border-gray-200 mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="flex">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === tab.id
-                      ? "border-gray-900 text-gray-900"
-                      : "border-transparent text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  <tab.icon className="w-4 h-4" />
-                  {tab.label}
-                  {tab.id === "seo" && form.focus_keyword && (
-                    <span
-                      className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                        seoScore >= 80
-                          ? "bg-green-100 text-green-700"
-                          : seoScore >= 50
-                          ? "bg-yellow-100 text-yellow-700"
-                          : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      {seoScore}%
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
-          </div>
-
-          <div className="p-6">
-            {/* Details Tab */}
-            {activeTab === "details" && (
-              <div className="space-y-6">
-                {/* Status */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Status
-                  </label>
-                  <div className="flex items-center gap-3">
-                    {STATUS_OPTIONS.map((status) => (
-                      <button
-                        key={status}
-                        type="button"
-                        onClick={() => handleChange("status", status)}
-                        className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                          form.status === status
-                            ? status === "active"
-                              ? "bg-green-100 border-green-300 text-green-800"
-                              : status === "inactive"
-                              ? "bg-gray-100 border-gray-300 text-gray-800"
-                              : "bg-red-100 border-red-300 text-red-800"
-                            : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
-                        }`}
-                      >
-                        {status.charAt(0).toUpperCase() + status.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Title & Sub Title */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Title <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={form.title}
-                      onChange={(e) => handleChange("title", e.target.value)}
-                      className={`w-full h-10 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 ${
-                        errors.title
-                          ? "border-red-300 bg-red-50"
-                          : "border-gray-200"
-                      }`}
-                      placeholder="Enter title"
-                    />
-                    {errors.title && (
-                      <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                        <FiAlertCircle className="w-3 h-3" />
-                        {errors.title}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Sub Title
-                    </label>
-                    <input
-                      type="text"
-                      value={form.sub_title}
-                      onChange={(e) =>
-                        handleChange("sub_title", e.target.value)
-                      }
-                      className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200"
-                      placeholder="Enter sub title"
-                    />
-                  </div>
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Description <span className="text-red-500">*</span>
-                  </label>
-                  <textarea
-                    value={form.description}
-                    onChange={(e) =>
-                      handleChange("description", e.target.value)
-                    }
-                    rows={6}
-                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none ${
-                      errors.description
-                        ? "border-red-300 bg-red-50"
-                        : "border-gray-200"
+          {/* Tabs */}
+          <div className="bg-white rounded-lg border mb-6">
+            <div className="flex border-b">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                      activeTab === tab.id
+                        ? "border-blue-500 text-blue-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700"
                     }`}
-                    placeholder="Write job description..."
-                  />
-                  <div className="flex items-center justify-between mt-1">
-                    {errors.description ? (
-                      <p className="text-xs text-red-600 flex items-center gap-1">
-                        <FiAlertCircle className="w-3 h-3" />
-                        {errors.description}
-                      </p>
-                    ) : (
-                      <span></span>
-                    )}
-                    <p className="text-xs text-gray-500">
-                      {form.description.split(/\s+/).filter(Boolean).length}{" "}
-                      words
-                    </p>
-                  </div>
-                </div>
+                  >
+                    <Icon className="w-4 h-4" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
 
-                {/* Sub Description */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Sub Description
-                  </label>
-                  <textarea
-                    value={form.sub_description}
-                    onChange={(e) =>
-                      handleChange("sub_description", e.target.value)
-                    }
-                    rows={3}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none"
-                    placeholder="Additional description..."
-                  />
-                </div>
-
-                {/* Job Title, City, Job Type */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Job Title <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={form.job_title}
-                      onChange={(e) =>
-                        handleChange("job_title", e.target.value)
-                      }
-                      className={`w-full h-10 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 ${
-                        errors.job_title
-                          ? "border-red-300 bg-red-50"
-                          : "border-gray-200"
-                      }`}
-                      placeholder="e.g. Senior Developer"
-                    />
-                    {errors.job_title && (
-                      <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                        <FiAlertCircle className="w-3 h-3" />
-                        {errors.job_title}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      City Name
-                    </label>
-                    <input
-                      type="text"
-                      value={form.city_name}
-                      onChange={(e) =>
-                        handleChange("city_name", e.target.value)
-                      }
-                      className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200"
-                      placeholder="e.g. Dubai"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Job Type
-                    </label>
-                    <select
-                      value={form.job_type}
-                      onChange={(e) => handleChange("job_type", e.target.value)}
-                      className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200"
-                    >
-                      {JOB_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* About the Team */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    About the Team
-                  </label>
-                  <textarea
-                    value={form.about_team}
-                    onChange={(e) => handleChange("about_team", e.target.value)}
-                    rows={4}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none"
-                    placeholder="Describe the team..."
-                  />
-                </div>
-
-                {/* About Company */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    About Company
-                  </label>
-                  <textarea
-                    value={form.about_company}
-                    onChange={(e) =>
-                      handleChange("about_company", e.target.value)
-                    }
-                    rows={4}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none"
-                    placeholder="About the company..."
-                  />
-                </div>
-
-                {/* Responsibilities */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Responsibilities
-                  </label>
-                  <textarea
-                    value={form.responsibilities}
-                    onChange={(e) =>
-                      handleChange("responsibilities", e.target.value)
-                    }
-                    rows={5}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none"
-                    placeholder="List job responsibilities..."
-                  />
-                </div>
-
-                {/* Other Facility */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Benefits & Facilities
-                  </label>
-                  <textarea
-                    value={form.other_facility}
-                    onChange={(e) =>
-                      handleChange("other_facility", e.target.value)
-                    }
-                    rows={3}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none"
-                    placeholder="Benefits, perks, etc..."
-                  />
-                </div>
-
-                {/* Social Media */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-900 mb-3">
-                    Social Media Links
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-6">
+              {/* Basic Info Tab */}
+              {activeTab === "basic" && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        Facebook
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Job Title <span className="text-red-500">*</span>
                       </label>
-                      <input
-                        type="url"
-                        value={form.facebook}
-                        onChange={(e) =>
-                          handleChange("facebook", e.target.value)
-                        }
-                        className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200"
-                        placeholder="https://facebook.com/..."
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        LinkedIn
-                      </label>
-                      <input
-                        type="url"
-                        value={form.linkedin}
-                        onChange={(e) =>
-                          handleChange("linkedin", e.target.value)
-                        }
-                        className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200"
-                        placeholder="https://linkedin.com/..."
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        Twitter
-                      </label>
-                      <input
-                        type="url"
-                        value={form.twitter}
-                        onChange={(e) =>
-                          handleChange("twitter", e.target.value)
-                        }
-                        className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200"
-                        placeholder="https://twitter.com/..."
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* SEO Tab */}
-            {activeTab === "seo" && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-4">
-                  {/* SEO Title */}
-                  <div>
-                    <div className="flex justify-between mb-1.5">
-                      <label className="text-sm font-medium text-gray-700">
-                        SEO Title
-                      </label>
-                      <span
-                        className={`text-xs ${
-                          form.seo_title.length > 60
-                            ? "text-red-500"
-                            : "text-gray-500"
-                        }`}
-                      >
-                        {form.seo_title.length} / 60
-                      </span>
-                    </div>
-                    <input
-                      type="text"
-                      value={form.seo_title}
-                      onChange={(e) =>
-                        handleChange("seo_title", e.target.value)
-                      }
-                      maxLength={60}
-                      className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200"
-                      placeholder="SEO title..."
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      This appears as the title in search engine results.
-                    </p>
-                  </div>
-
-                  {/* Permalink */}
-                  <div>
-                    <div className="flex justify-between mb-1.5">
-                      <label className="text-sm font-medium text-gray-700">
-                        Permalink / Slug
-                      </label>
-                      <span
-                        className={`text-xs ${
-                          form.seo_permalink.length > 75
-                            ? "text-red-500"
-                            : "text-gray-500"
-                        }`}
-                      >
-                        {form.seo_permalink.length} / 75
-                      </span>
-                    </div>
-                    <div className="flex items-center">
-                      <span className="h-10 px-3 flex items-center text-sm text-gray-500 bg-gray-50 border border-r-0 border-gray-200 rounded-l-lg">
-                        /jobs/
-                      </span>
                       <input
                         type="text"
-                        value={form.seo_permalink}
-                        onChange={(e) =>
-                          handleChange(
-                            "seo_permalink",
-                            e.target.value
-                              .toLowerCase()
-                              .replace(/[^\w\s-]/g, "")
-                              .replace(/[\s_-]+/g, "-")
-                          )
-                        }
-                        maxLength={75}
-                        className="flex-1 h-10 px-3 text-sm border border-gray-200 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-gray-200"
-                        placeholder="job-title-slug"
+                        name="job_title"
+                        value={formData.job_title || ""}
+                        onChange={handleChange}
+                        className={`w-full px-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          errors.job_title ? "border-red-300" : "border-gray-300"
+                        }`}
+                        placeholder="e.g., Senior Frontend Developer"
+                      />
+                      {errors.job_title && (
+                        <p className="mt-1 text-sm text-red-600">{errors.job_title}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Job Type <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        name="type"
+                        value={formData.type || ""}
+                        onChange={handleChange}
+                        className={`w-full px-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          errors.type ? "border-red-300" : "border-gray-300"
+                        }`}
+                      >
+                        <option value="">Select type</option>
+                        {JOB_TYPES.map((type) => (
+                          <option key={type.value} value={type.value}>
+                            {type.label}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.type && <p className="mt-1 text-sm text-red-600">{errors.type}</p>}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Status
+                      </label>
+                      <select
+                        name="status"
+                        value={formData.status || ""}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {STATUS_OPTIONS.map((status) => (
+                          <option key={status.value} value={status.value}>
+                            {status.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Location
+                      </label>
+                      <input
+                        type="text"
+                        name="location"
+                        value={formData.location || ""}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g., Remote, Dubai, UAE"
                       />
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      The URL-friendly version of the title.
-                    </p>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Slug
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          name="slug"
+                          value={formData.slug || ""}
+                          onChange={handleChange}
+                          className={`w-full px-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                            errors.slug ? "border-red-300" : "border-gray-300"
+                          }`}
+                          placeholder="auto-generated-from-title"
+                        />
+                        {checkingSlug && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                            <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                          </div>
+                        )}
+                        {slugAvailable === true && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center text-green-600">
+                            <CheckCircle className="w-4 h-4" />
+                          </div>
+                        )}
+                        {slugAvailable === false && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center text-red-600">
+                            <X className="w-4 h-4" />
+                          </div>
+                        )}
+                      </div>
+                      {errors.slug && <p className="mt-1 text-sm text-red-600">{errors.slug}</p>}
+                      <p className="mt-1 text-xs text-gray-500">
+                        Leave empty to auto-generate from title
+                      </p>
+                    </div>
                   </div>
 
-                  {/* SEO Description */}
                   <div>
-                    <div className="flex justify-between mb-1.5">
-                      <label className="text-sm font-medium text-gray-700">
-                        Meta Description
-                      </label>
-                      <span
-                        className={`text-xs ${
-                          form.seo_description.length > 160
-                            ? "text-red-500"
-                            : "text-gray-500"
-                        }`}
-                      >
-                        {form.seo_description.length} / 160
-                      </span>
-                    </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Short Description
+                    </label>
                     <textarea
-                      value={form.seo_description}
-                      onChange={(e) =>
-                        handleChange("seo_description", e.target.value)
-                      }
-                      maxLength={160}
+                      name="title"
+                      value={formData.title || ""}
+                      onChange={handleChange}
                       rows={3}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none"
-                      placeholder="SEO description..."
+                      className={`w-full px-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        errors.title ? "border-red-300" : "border-gray-300"
+                      }`}
+                      placeholder="Brief description (appears in listings)"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      This appears below the title in search results.
-                    </p>
+                    {errors.title && <p className="mt-1 text-sm text-red-600">{errors.title}</p>}
+                  </div>
+                </div>
+              )}
+
+              {/* Details Tab */}
+              {activeTab === "details" && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Minimum Salary (USD)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                        <input
+                          type="number"
+                          name="salary_min"
+                          value={formData.salary_min || ""}
+                          onChange={handleChange}
+                          min="0"
+                          className={`w-full pl-8 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                            errors.salary_min ? "border-red-300" : "border-gray-300"
+                          }`}
+                          placeholder="0"
+                        />
+                      </div>
+                      {errors.salary_min && (
+                        <p className="mt-1 text-sm text-red-600">{errors.salary_min}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Maximum Salary (USD)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                        <input
+                          type="number"
+                          name="salary_max"
+                          value={formData.salary_max || ""}
+                          onChange={handleChange}
+                          min="0"
+                          className="w-full pl-8 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Min Experience (years)
+                      </label>
+                      <input
+                        type="number"
+                        name="experience_min"
+                        value={formData.experience_min || ""}
+                        onChange={handleChange}
+                        min="0"
+                        step="0.5"
+                        className={`w-full px-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          errors.experience_min ? "border-red-300" : "border-gray-300"
+                        }`}
+                        placeholder="0"
+                      />
+                      {errors.experience_min && (
+                        <p className="mt-1 text-sm text-red-600">{errors.experience_min}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Max Experience (years)
+                      </label>
+                      <input
+                        type="number"
+                        name="experience_max"
+                        value={formData.experience_max || ""}
+                        onChange={handleChange}
+                        min="0"
+                        step="0.5"
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="0"
+                      />
+                    </div>
                   </div>
 
-                  {/* Focus Keyword */}
-                  <div>
-                    <div className="flex justify-between mb-1.5">
-                      <label className="text-sm font-medium text-gray-700">
-                        Focus Keyword
-                      </label>
-                      <span className="text-xs text-gray-500">
-                        {form.focus_keyword.length} / 100
-                      </span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <label className="block text-sm font-medium text-gray-700">Flags</label>
+                      <div className="space-y-3">
+                        <label className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            name="featured"
+                            checked={formData.featured || false}
+                            onChange={handleChange}
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Star className="w-4 h-4 text-yellow-500" />
+                            <span className="text-sm font-medium">Featured</span>
+                          </div>
+                        </label>
+                        <label className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            name="urgent"
+                            checked={formData.urgent || false}
+                            onChange={handleChange}
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-orange-500" />
+                            <span className="text-sm font-medium">Urgent</span>
+                          </div>
+                        </label>
+                      </div>
                     </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Application Deadline
+                      </label>
+                      <input
+                        type="date"
+                        name="deadline"
+                        value={formData.deadline || ""}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Full Description
+                    </label>
+                    <textarea
+                      name="description"
+                      value={formData.description || ""}
+                      onChange={handleChange}
+                      rows={8}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      placeholder="Detailed job description, requirements, benefits..."
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* SEO Tab */}
+              {activeTab === "seo" && (
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      SEO Title
+                    </label>
                     <input
                       type="text"
-                      value={form.focus_keyword}
-                      onChange={(e) =>
-                        handleChange("focus_keyword", e.target.value)
-                      }
-                      maxLength={100}
-                      className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200"
-                      placeholder="e.g. senior developer job"
+                      name="seo_title"
+                      value={formData.seo_title || ""}
+                      onChange={handleChange}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="SEO optimized title for search engines"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      The main keyword you want this page to rank for.
+                    <div className="flex justify-between mt-1">
+                      <p className="text-xs text-gray-500">
+                        {formData.seo_title?.length || 0}/60 characters
+                      </p>
+                      <p className="text-xs text-gray-500">Recommended: 50-60 characters</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      SEO Description
+                    </label>
+                    <textarea
+                      name="seo_description"
+                      value={formData.seo_description || ""}
+                      onChange={handleChange}
+                      rows={4}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      placeholder="SEO meta description for search engines"
+                    />
+                    <div className="flex justify-between mt-1">
+                      <p className="text-xs text-gray-500">
+                        {formData.seo_description?.length || 0}/160 characters
+                      </p>
+                      <p className="text-xs text-gray-500">Recommended: 150-160 characters</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      SEO Keywords
+                    </label>
+                    <input
+                      type="text"
+                      name="seo_keyword"
+                      value={formData.seo_keyword || ""}
+                      onChange={handleChange}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="comma, separated, keywords"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Separate keywords with commas
                     </p>
                   </div>
-
-                  {/* Search Preview */}
-                  <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                    <h4 className="text-xs font-medium text-gray-500 uppercase mb-3">
-                      Search Preview
-                    </h4>
-                    <div className="bg-white p-4 rounded border border-gray-200">
-                      <p className="text-blue-600 text-lg hover:underline cursor-pointer truncate">
-                        {form.seo_title || form.title || "Page Title"}
-                      </p>
-                      <p className="text-green-700 text-sm truncate">
-                        yourwebsite.com/jobs/{form.seo_permalink || "page-url"}
-                      </p>
-                      <p className="text-gray-600 text-sm mt-1 line-clamp-2">
-                        {form.seo_description ||
-                          form.description?.slice(0, 160) ||
-                          "Page description will appear here..."}
-                      </p>
-                    </div>
-                  </div>
                 </div>
+              )}
+            </div>
+          </div>
 
-                {/* SEO Checklist */}
-                <div className="space-y-4">
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-sm font-medium text-gray-900">
-                        SEO Score
-                      </h3>
-                      <span
-                        className={`text-lg font-bold ${
-                          seoScore >= 80
-                            ? "text-green-600"
-                            : seoScore >= 50
-                            ? "text-yellow-600"
-                            : "text-red-600"
-                        }`}
-                      >
-                        {seoScore}%
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
-                      <div
-                        className={`h-2 rounded-full transition-all ${
-                          seoScore >= 80
-                            ? "bg-green-500"
-                            : seoScore >= 50
-                            ? "bg-yellow-500"
-                            : "bg-red-500"
-                        }`}
-                        style={{ width: `${seoScore}%` }}
-                      ></div>
-                    </div>
-                  </div>
-
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-4">
-                      SEO Checklist
-                    </h3>
-                    <div className="space-y-3">
-                      {seoChecks.map((item, i) => (
-                        <div key={i} className="flex items-start gap-2">
-                          {item.passed ? (
-                            <FiCheck className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                          ) : (
-                            <FiAlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-                          )}
-                          <span
-                            className={`text-xs leading-relaxed ${
-                              item.passed ? "text-green-700" : "text-yellow-700"
-                            }`}
-                          >
-                            {item.label}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {!form.focus_keyword && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <p className="text-xs text-blue-700">
-                        💡 Add a focus keyword to see SEO recommendations
-                      </p>
-                    </div>
-                  )}
-                </div>
+          {/* Form Status */}
+          {hasChanges() && (
+            <div className="fixed bottom-6 right-6">
+              <div className="bg-blue-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3">
+                <Info className="w-5 h-5" />
+                <span className="text-sm font-medium">You have unsaved changes</span>
+                <button
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  className="ml-2 px-4 py-1.5 bg-white text-blue-600 text-sm font-medium rounded hover:bg-gray-100 disabled:opacity-50"
+                >
+                  {loading ? "Saving..." : "Save Now"}
+                </button>
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Bottom Action Bar */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-4 z-40">
-          <div className="max-w-4xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              {hasChanges && (
-                <span className="text-sm text-yellow-600 flex items-center gap-1">
-                  <FiAlertCircle className="w-4 h-4" />
-                  You have unsaved changes
-                </span>
-              )}
-              {Object.keys(errors).length > 0 && (
-                <span className="text-sm text-red-600 flex items-center gap-1">
-                  <FiAlertCircle className="w-4 h-4" />
-                  {Object.keys(errors).length} error(s) found
-                </span>
-              )}
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => router.push("/admin/jobs")}
-                disabled={updateLoading}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={updateLoading || !hasChanges}
-                className="inline-flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50"
-              >
-                {updateLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Updating...
-                  </>
-                ) : (
-                  <>
-                    <FiSave className="w-4 h-4" />
-                    Update Job
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
+          )}
         </div>
       </div>
-    </div>
+    </>
   );
 }

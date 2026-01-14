@@ -1,110 +1,141 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import React, { useState, useCallback, useEffect } from "react";
 import {
-  MapPin,
   ArrowLeft,
-  Save,
   Loader2,
-  AlertCircle,
-  Upload,
   X,
+  Save,
+  MapPin,
   Globe,
-  Hash,
-  FileText,
   Image as ImageIcon,
-  Eye,
   Trash2,
 } from "lucide-react";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { Toaster, toast } from "react-hot-toast";
+import { Country, City } from "country-state-city";
+import AdminNavbar from "../../../dashboard/header/DashboardNavbar";
+import TextEditor from "../../../../components/common/SimpleTextEditor";
 import {
   getAdminToken,
   isAdminTokenValid,
   getCurrentSessionType,
   logoutAll,
 } from "../../../../../utils/auth";
-import AdminNavbar from "../../../dashboard/header/DashboardNavbar";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// ==================== TOKEN VERIFICATION ====================
-const verifyToken = async (token) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/admin/verify`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    return await response.json();
-  } catch (error) {
-    console.error("Token verification failed:", error);
-    throw error;
-  }
-};
-
-const STATUS_OPTIONS = [
-  { value: "active", label: "Active", bg: "bg-green-100", text: "text-green-700" },
-  { value: "inactive", label: "Inactive", bg: "bg-red-100", text: "text-red-700" },
+// ==================== CONSTANTS ====================
+const COUNTRIES = [
+  { id: 1, name: "United Arab Emirates", code: "AE" },
+  { id: 2, name: "Saudi Arabia", code: "SA" },
+  { id: 3, name: "Qatar", code: "QA" },
+  { id: 4, name: "Bahrain", code: "BH" },
+  { id: 5, name: "Kuwait", code: "KW" },
+  { id: 6, name: "Oman", code: "OM" },
 ];
 
-// ==================== IMAGE URL HELPER ====================
-const getImageUrl = (imagePath) => {
-  if (!imagePath) return null;
-  if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
-    return imagePath;
-  }
-  if (imagePath.startsWith("/")) {
-    return `${API_BASE_URL}${imagePath}`;
-  }
-  return `${API_BASE_URL}/uploads/cities/${imagePath}`;
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+
+const INITIAL_FORM_STATE = {
+  country_id: 1,
+  state_id: "",
+  city_data_id: "",
+  name: "",
+  longitude: "",
+  latitude: "",
+  seo_title: "",
+  seo_description: "",
+  seo_keyword: "",
+  description: "",
+  status: "active",
 };
 
-// City Image Component (using regular img tag)
-const CityImagePreview = ({ src, alt, onRemove }) => {
-  const [error, setError] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+// ==================== TOAST HELPERS ====================
+const showSuccess = (message) => {
+  toast.success(message, {
+    duration: 3000,
+    position: "top-right",
+    style: { background: "#10B981", color: "#fff", fontWeight: "500" },
+  });
+};
 
-  if (!src || error) {
-    return null;
-  }
+const showError = (message) => {
+  toast.error(message, {
+    duration: 4000,
+    position: "top-right",
+    style: { background: "#EF4444", color: "#fff", fontWeight: "500" },
+  });
+};
 
-  return (
-    <div className="relative w-full h-48 rounded border border-gray-300 overflow-hidden bg-gray-100">
-      {!loaded && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+const showLoading = (message) => {
+  return toast.loading(message, { position: "top-right" });
+};
+
+const showConfirm = (message, onConfirm) => {
+  toast.custom(
+    (t) => (
+      <div className="bg-white rounded-lg shadow-xl border border-gray-200 p-6 max-w-md">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+              <Trash2 className="w-5 h-5 text-red-600" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">Confirm Action</h3>
+              <p className="text-sm text-gray-600 mt-1">{message}</p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                onConfirm();
+                toast.dismiss(t.id);
+              }}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+            >
+              Confirm
+            </button>
+          </div>
         </div>
-      )}
-      <img
-        src={src}
-        alt={alt || "City"}
-        className={`w-full h-full object-cover transition-opacity duration-200 ${
-          loaded ? "opacity-100" : "opacity-0"
-        }`}
-        onLoad={() => setLoaded(true)}
-        onError={() => setError(true)}
-      />
-      {onRemove && (
-        <button
-          type="button"
-          onClick={onRemove}
-          className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded hover:bg-red-700"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-      )}
-    </div>
+      </div>
+    ),
+    {
+      duration: Infinity,
+      position: "top-center",
+    }
   );
 };
 
-export default function EditCityPage() {
-  const params = useParams();
-  const cityId = params?.id;
+// ==================== UTILITY FUNCTIONS ====================
+const fastNavigate = (url) => {
+  if (typeof window !== "undefined") {
+    window.location.href = url;
+  }
+};
 
+const validateFile = (file) => {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    const extensions = ALLOWED_IMAGE_TYPES.map((t) => t.split("/")[1]).join(", ");
+    return { valid: false, error: `Invalid image type. Allowed: ${extensions}` };
+  }
+  if (file.size > MAX_IMAGE_SIZE) {
+    const sizeMB = MAX_IMAGE_SIZE / (1024 * 1024);
+    return { valid: false, error: `Image size must be less than ${sizeMB}MB` };
+  }
+  return { valid: true, error: null };
+};
+
+// ==================== MAIN COMPONENT ====================
+export default function EditCityPage({ params }) {
+  const { id } = params;
+  
   // Auth State
   const [admin, setAdmin] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -112,416 +143,284 @@ export default function EditCityPage() {
   const [logoutLoading, setLogoutLoading] = useState(false);
 
   // Form State
-  const [formData, setFormData] = useState({
-    cities: "",
-    country: "",
-    code: "",
-    slug: "",
-    status: "active",
-    description: "",
-    seo_title: "",
-    seo_description: "",
-    seo_focus_keyword: "",
-  });
-  const [originalData, setOriginalData] = useState(null);
-
-  // Image State
-  const [currentImage, setCurrentImage] = useState(null);
-  const [newImage, setNewImage] = useState(null);
+  const [formData, setFormData] = useState(INITIAL_FORM_STATE);
+  const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  const [removeImage, setRemoveImage] = useState(false);
-
-  // UI State
+  const [currentImage, setCurrentImage] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState({});
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // ==================== AUTHENTICATION ====================
-  const checkAuth = useCallback(async () => {
-    try {
-      const sessionType = getCurrentSessionType();
+  // Country-State-City
+  const [countriesList, setCountriesList] = useState([]);
+  const [citiesList, setCitiesList] = useState([]);
+  const [selectedCountryCode, setSelectedCountryCode] = useState("");
 
-      if (sessionType !== "admin") {
-        toast.error(
-          sessionType === "user"
-            ? "Please login as admin to access this dashboard"
-            : "Please login to access dashboard"
-        );
-        handleAuthFailure();
-        return;
-      }
-
-      const token = getAdminToken();
-
-      if (!token) {
-        toast.error("Please login to access dashboard");
-        handleAuthFailure();
-        return;
-      }
-
-      if (!isAdminTokenValid()) {
-        toast.error("Session expired. Please login again.");
-        handleAuthFailure();
-        return;
-      }
-
+  // ==================== AUTH VERIFICATION ====================
+  useEffect(() => {
+    const verifyAuth = async () => {
       try {
-        await verifyToken(token);
-      } catch (verifyError) {
-        if (verifyError.response?.status === 401) {
-          toast.error("Invalid or expired token. Please login again.");
-          handleAuthFailure();
-          return;
-        }
-      }
+        const token = getAdminToken();
+        const sessionType = getCurrentSessionType();
 
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-
-        if (payload.userType !== "admin") {
-          toast.error("Invalid session type. Please login as admin.");
-          handleAuthFailure();
+        if (!token || !isAdminTokenValid()) {
+          logoutAll();
+          fastNavigate("/admin/login");
           return;
         }
 
-        setAdmin({
-          id: payload.id,
-          name: payload.name,
-          email: payload.email,
-          role: payload.role || "admin",
-          userType: payload.userType,
-          avatar: null,
-        });
-        setIsAuthenticated(true);
+        if (sessionType !== "admin") {
+          logoutAll();
+          fastNavigate("/admin/login");
+          return;
+        }
+
+        try {
+          const payload = JSON.parse(atob(token.split(".")[1]));
+          setAdmin({
+            id: payload.id,
+            name: payload.name,
+            email: payload.email,
+            role: payload.role || "admin",
+            userType: payload.userType,
+          });
+          setIsAuthenticated(true);
+        } catch {
+          logoutAll();
+          fastNavigate("/admin/login");
+        }
+      } catch (error) {
+        logoutAll();
+        fastNavigate("/admin/login");
+      } finally {
         setAuthLoading(false);
-      } catch (e) {
-        console.error("Token decode error:", e);
-        toast.error("Invalid session. Please login again.");
-        handleAuthFailure();
       }
-    } catch (error) {
-      console.error("Auth check error:", error);
-      toast.error("Authentication failed. Please login again.");
-      handleAuthFailure();
-    }
+    };
+
+    verifyAuth();
   }, []);
 
-  const handleAuthFailure = useCallback(() => {
-    logoutAll();
-    setAdmin(null);
-    setIsAuthenticated(false);
-    setAuthLoading(false);
-    window.location.href = "/admin/login";
+  // Initialize countries
+  useEffect(() => {
+    const allCountries = Country.getAllCountries();
+    setCountriesList(allCountries);
   }, []);
 
+  // ==================== FETCH CITY DATA ====================
+  useEffect(() => {
+    if (!isAuthenticated || !id) return;
+
+    const fetchCityData = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/cities/${id}`, {
+          headers: {
+            Authorization: `Bearer ${getAdminToken()}`,
+          },
+        });
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            showError("City not found");
+            fastNavigate("/admin/cities");
+            return;
+          }
+          throw new Error("Failed to fetch city data");
+        }
+
+        const data = await response.json();
+        
+        if (data.success && data.data) {
+          const city = data.data;
+          setFormData({
+            country_id: city.country_id || 1,
+            state_id: city.state_id || "",
+            city_data_id: city.city_data_id || "",
+            name: city.name || "",
+            longitude: city.longitude || "",
+            latitude: city.latitude || "",
+            seo_title: city.seo_title || "",
+            seo_description: city.seo_description || "",
+            seo_keyword: city.seo_keyword || "",
+            description: city.description || "",
+            status: city.status || "active",
+          });
+
+          if (city.media && city.media.length > 0) {
+            setCurrentImage(city.media[0]);
+          }
+        } else {
+          showError(data.message || "Failed to fetch city data");
+          fastNavigate("/admin/cities");
+        }
+      } catch (error) {
+        console.error("Fetch error:", error);
+        showError("Failed to load city data");
+        fastNavigate("/admin/cities");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCityData();
+  }, [id, isAuthenticated]);
+
+  // ==================== HANDLERS ====================
   const handleLogout = useCallback(async () => {
     setLogoutLoading(true);
     try {
-      const token = getAdminToken();
-      await fetch(`${API_BASE_URL}/api/v1/admin/logout`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
-    } catch (err) {
-      console.error("Logout error:", err);
-    } finally {
       logoutAll();
-      toast.success("Logged out successfully");
+      showSuccess("Logged out successfully");
       window.location.href = "/admin/login";
+    } finally {
+      setLogoutLoading(false);
     }
   }, []);
 
-  // API Helper
-  const apiRequest = useCallback(async (endpoint, options = {}) => {
-    const token = getAdminToken();
-
-    if (!token) {
-      window.location.href = "/admin/login";
-      throw new Error("Please login to continue");
-    }
-
-    const headers = {
-      Authorization: `Bearer ${token}`,
-    };
-
-    // Don't set Content-Type for FormData
-    if (!(options.body instanceof FormData)) {
-      headers["Content-Type"] = "application/json";
-    }
-
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers: {
-        ...headers,
-        ...options.headers,
-      },
-    });
-
-    if (response.status === 401) {
-      logoutAll();
-      window.location.href = "/admin/login";
-      throw new Error("Session expired. Please login again.");
-    }
-
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ message: "Network error" }));
-      throw new Error(
-        error.message || `HTTP error! status: ${response.status}`
-      );
-    }
-
-    return response.json();
+  const handleFormChange = useCallback((field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   }, []);
 
-  // Fetch City Data
-  const fetchCity = useCallback(async () => {
-    if (!cityId) {
-      toast.error("City ID is missing");
-      window.location.href = "/admin/cities";
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      const data = await apiRequest(`/api/v1/cities/${cityId}`);
-
-      if (data.success && data.data) {
-        const city = data.data;
-
-        const cityData = {
-          cities: city.cities || "",
-          country: city.country || "",
-          code: city.code || "",
-          slug: city.slug || "",
-          status: city.status || "active",
-          description: city.description || "",
-          seo_title: city.seo_title || "",
-          seo_description: city.seo_description || "",
-          seo_focus_keyword: city.seo_focus_keyword || "",
-        };
-
-        setFormData(cityData);
-        setOriginalData(cityData);
-        setCurrentImage(city.image);
-      } else {
-        throw new Error("City not found");
-      }
-    } catch (err) {
-      console.error("Error fetching city:", err);
-      toast.error("Failed to load city data");
-      window.location.href = "/admin/cities";
-    } finally {
-      setLoading(false);
-    }
-  }, [cityId, apiRequest]);
-
-  // Effects
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  useEffect(() => {
-    if (isAuthenticated && cityId) {
-      fetchCity();
-    }
-  }, [isAuthenticated, cityId, fetchCity]);
-
-  // Generate slug from city name
-  const generateSlug = (text) => {
-    if (!text) return "";
-    return text
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/[\s_-]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-  };
-
-  // Handle Input Change
-  const handleChange = (field, value) => {
-    setFormData((prev) => {
-      const newData = { ...prev, [field]: value };
-
-      // Auto-generate slug from city name
-      if (field === "cities") {
-        newData.slug = generateSlug(value);
-      }
-
-      return newData;
-    });
-
-    // Clear error for this field
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: null }));
+  const handleCountryCodeChange = (code) => {
+    setSelectedCountryCode(code);
+    if (code) {
+      const cities = City.getCitiesOfCountry(code);
+      setCitiesList(cities || []);
+    } else {
+      setCitiesList([]);
     }
   };
 
-  // Handle Image Change
-  const handleImageChange = (e) => {
+  const handleImageChange = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select a valid image file");
+    const validation = validateFile(file);
+    if (!validation.valid) {
+      showError(validation.error);
       return;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image size should be less than 5MB");
-      return;
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  }, []);
+
+  const clearImage = useCallback(() => {
+    if (imagePreview && imagePreview.startsWith("blob:")) {
+      URL.revokeObjectURL(imagePreview);
     }
-
-    setNewImage(file);
-    setRemoveImage(false);
-
-    // Create preview
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result);
-    };
-    reader.readAsDataURL(file);
-
-    toast.success("Image selected");
-  };
-
-  // Remove Image
-  const handleRemoveImage = () => {
-    setNewImage(null);
+    setImageFile(null);
     setImagePreview(null);
-    setRemoveImage(true);
+  }, [imagePreview]);
+
+  const deleteCurrentImage = async () => {
+    if (!currentImage) return;
+
+    showConfirm("Are you sure you want to delete this image? This action cannot be undone.", async () => {
+      setDeleteLoading(true);
+      const deleteToast = showLoading("Deleting image...");
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/cities/${id}/media`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${getAdminToken()}`,
+          },
+        });
+
+        const data = await response.json();
+        toast.dismiss(deleteToast);
+
+        if (data.success) {
+          showSuccess("Image deleted successfully");
+          setCurrentImage(null);
+        } else {
+          showError(data.message || "Failed to delete image");
+        }
+      } catch (error) {
+        toast.dismiss(deleteToast);
+        console.error("Delete error:", error);
+        showError("Failed to delete image");
+      } finally {
+        setDeleteLoading(false);
+      }
+    });
   };
 
-  // Cancel Image Change
-  const handleCancelImageChange = () => {
-    setNewImage(null);
-    setImagePreview(null);
-    setRemoveImage(false);
-  };
-
-  // Validate Form
-  const validateForm = () => {
-    const newErrors = {};
-
-    if (!formData.cities.trim()) {
-      newErrors.cities = "City name is required";
-    }
-
-    if (!formData.country.trim()) {
-      newErrors.country = "Country is required";
-    }
-
-    if (!formData.slug.trim()) {
-      newErrors.slug = "Slug is required";
-    } else if (!/^[a-z0-9-]+$/.test(formData.slug)) {
-      newErrors.slug = "Slug can only contain lowercase letters, numbers and hyphens";
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // Check if form has changes
-  const hasChanges = () => {
-    if (!originalData) return false;
-    const formChanged =
-      formData.cities !== originalData.cities ||
-      formData.country !== originalData.country ||
-      formData.code !== originalData.code ||
-      formData.slug !== originalData.slug ||
-      formData.status !== originalData.status ||
-      formData.description !== originalData.description ||
-      formData.seo_title !== originalData.seo_title ||
-      formData.seo_description !== originalData.seo_description ||
-      formData.seo_focus_keyword !== originalData.seo_focus_keyword;
-
-    return formChanged || newImage !== null || removeImage;
-  };
-
-  // Reset form
-  const handleReset = () => {
-    if (originalData) {
-      setFormData(originalData);
-      setNewImage(null);
-      setImagePreview(null);
-      setRemoveImage(false);
-      setErrors({});
-      toast.success("Form reset to original values");
-    }
-  };
-
-  // Handle Submit
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!validateForm()) {
-      toast.error("Please fix the errors in the form");
+    if (!formData.name.trim()) {
+      showError("City name is required");
       return;
     }
 
-    setSaving(true);
+    if (!isAdminTokenValid()) {
+      showError("Session expired. Please login again.");
+      logoutAll();
+      fastNavigate("/admin/login");
+      return;
+    }
+
+    setSubmitLoading(true);
+    const saveToast = showLoading("Updating city...");
 
     try {
-      // Use FormData for file upload
-      const submitData = new FormData();
-      submitData.append("cities", formData.cities);
-      submitData.append("country", formData.country);
-      submitData.append("code", formData.code);
-      submitData.append("slug", formData.slug);
-      submitData.append("status", formData.status);
-      submitData.append("description", formData.description);
-      submitData.append("seo_title", formData.seo_title);
-      submitData.append("seo_description", formData.seo_description);
-      submitData.append("seo_focus_keyword", formData.seo_focus_keyword);
+      const formDataToSend = new FormData();
 
-      if (newImage) {
-        submitData.append("image", newImage);
-      } else if (removeImage) {
-        submitData.append("remove_image", "true");
+      formDataToSend.append("name", formData.name.trim());
+      formDataToSend.append("country_id", formData.country_id.toString());
+      formDataToSend.append("status", formData.status);
+
+      if (formData.state_id) formDataToSend.append("state_id", formData.state_id);
+      if (formData.city_data_id) formDataToSend.append("city_data_id", formData.city_data_id);
+      if (formData.latitude) formDataToSend.append("latitude", formData.latitude);
+      if (formData.longitude) formDataToSend.append("longitude", formData.longitude);
+      if (formData.description) formDataToSend.append("description", formData.description);
+      if (formData.seo_title) formDataToSend.append("seo_title", formData.seo_title);
+      if (formData.seo_description) formDataToSend.append("seo_description", formData.seo_description);
+      if (formData.seo_keyword) formDataToSend.append("seo_keyword", formData.seo_keyword);
+
+      if (imageFile) {
+        formDataToSend.append("img", imageFile);
       }
 
-      await apiRequest(`/api/v1/cities/${cityId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/cities/${id}`, {
         method: "PUT",
-        body: submitData,
+        headers: { Authorization: `Bearer ${getAdminToken()}` },
+        body: formDataToSend,
       });
 
-      toast.success("City updated successfully!");
+      const data = await response.json();
+      toast.dismiss(saveToast);
 
-      setTimeout(() => {
-        window.location.href = "/admin/cities";
-      }, 1000);
-    } catch (err) {
-      console.error("Error updating city:", err);
-      toast.error(err.message || "Failed to update city");
+      if (data.success) {
+        showSuccess("City updated successfully!");
+        // Refresh the page to show updated data
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      } else {
+        showError(data.message || "Failed to update city");
+      }
+    } catch (error) {
+      toast.dismiss(saveToast);
+      console.error("Update error:", error);
+      showError("Failed to update city");
     } finally {
-      setSaving(false);
+      setSubmitLoading(false);
     }
   };
-
-  // Navigate back
-  const handleBack = () => {
-    window.location.href = "/admin/cities";
-  };
-
-  // Get current display image
-  const displayImage =
-    imagePreview || (removeImage ? null : getImageUrl(currentImage));
 
   // ==================== LOADING STATE ====================
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Toaster />
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-gray-600 font-medium">
-            Verifying authentication...
-          </p>
+          <p className="mt-4 text-gray-600 font-medium">Loading...</p>
         </div>
-        <ToastContainer position="top-right" autoClose={3000} />
       </div>
     );
   }
@@ -539,10 +438,25 @@ export default function EditCityPage() {
           onLogout={handleLogout}
           logoutLoading={logoutLoading}
         />
-        <div className="min-h-screen bg-gray-100 pt-4 flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-8 h-8 border-3 border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading city...</p>
+        <div className="min-h-screen bg-gray-100 pt-4">
+          <div className="p-4 max-w-5xl mx-auto">
+            <div className="flex items-center gap-4 mb-6">
+              <button
+                onClick={() => fastNavigate("/admin/cities")}
+                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">Edit City</h1>
+                <p className="text-sm text-gray-600">Loading city data...</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+              <div className="flex items-center justify-center">
+                <div className="w-16 h-16 border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
+              </div>
+            </div>
           </div>
         </div>
       </>
@@ -551,20 +465,8 @@ export default function EditCityPage() {
 
   return (
     <>
-      <ToastContainer
-        position="top-right"
-        autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
-      />
+      <Toaster position="top-right" />
 
-      {/* Admin Navbar */}
       <AdminNavbar
         admin={admin}
         isAuthenticated={isAuthenticated}
@@ -573,439 +475,356 @@ export default function EditCityPage() {
       />
 
       <div className="min-h-screen bg-gray-100 pt-4">
-        <div className="p-3">
+        <div className="p-4 max-w-5xl mx-auto">
           {/* Header */}
-          <div className="mb-4">
-            <button
-              onClick={handleBack}
-              className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-3 text-sm"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Cities
-            </button>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => fastNavigate("/admin/cities")}
+                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
               <div>
-                <h1 className="text-2xl font-bold text-gray-800 mb-1">
-                  Edit City
-                </h1>
-                <p className="text-gray-600 text-sm">
-                  Update city details • ID: #{cityId}
-                </p>
+                <h1 className="text-2xl font-bold text-gray-800">Edit City</h1>
+                <p className="text-sm text-gray-600">Update city information</p>
               </div>
-              <div className="flex items-center gap-2">
-                {hasChanges() && (
-                  <button
-                    onClick={handleReset}
-                    disabled={saving}
-                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50"
-                  >
-                    Reset
-                  </button>
-                )}
-                <button
-                  onClick={handleSubmit}
-                  disabled={saving || !hasChanges()}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" />
-                      Save Changes
-                    </>
-                  )}
-                </button>
-              </div>
+            </div>
+            <div className="text-sm text-gray-500">
+              ID: <span className="font-mono bg-gray-100 px-2 py-1 rounded">{id}</span>
             </div>
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Main Form */}
-              <div className="lg:col-span-2 space-y-4">
-                {/* Basic Information Card */}
-                <div className="bg-white border border-gray-300 rounded">
-                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-5 h-5 text-amber-600" />
-                      <h2 className="text-sm font-semibold text-gray-800">
-                        Basic Information
-                      </h2>
-                    </div>
-                  </div>
-
-                  <div className="p-4 space-y-4">
-                    {/* City Name */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        City Name <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.cities}
-                        onChange={(e) => handleChange("cities", e.target.value)}
-                        placeholder="Enter city name"
-                        className={`w-full px-4 py-2.5 border rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ${
-                          errors.cities
-                            ? "border-red-300 bg-red-50"
-                            : "border-gray-300"
-                        }`}
-                      />
-                      {errors.cities && (
-                        <div className="flex items-center gap-1 mt-1.5 text-red-600">
-                          <AlertCircle className="w-3.5 h-3.5" />
-                          <span className="text-xs">{errors.cities}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Country */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        Country <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                        <input
-                          type="text"
-                          value={formData.country}
-                          onChange={(e) =>
-                            handleChange("country", e.target.value)
-                          }
-                          placeholder="Enter country name"
-                          className={`w-full pl-10 pr-4 py-2.5 border rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ${
-                            errors.country
-                              ? "border-red-300 bg-red-50"
-                              : "border-gray-300"
-                          }`}
-                        />
-                      </div>
-                      {errors.country && (
-                        <div className="flex items-center gap-1 mt-1.5 text-red-600">
-                          <AlertCircle className="w-3.5 h-3.5" />
-                          <span className="text-xs">{errors.country}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Code and Slug Row */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Code */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          City Code
-                        </label>
-                        <div className="relative">
-                          <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                          <input
-                            type="text"
-                            value={formData.code}
-                            onChange={(e) =>
-                              handleChange("code", e.target.value.toUpperCase())
-                            }
-                            placeholder="e.g., NYC, LON"
-                            maxLength={10}
-                            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 uppercase"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Slug */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          Slug <span className="text-red-500">*</span>
-                        </label>
-                        <div className="relative">
-                          <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                          <input
-                            type="text"
-                            value={formData.slug}
-                            onChange={(e) =>
-                              handleChange(
-                                "slug",
-                                e.target.value.toLowerCase().replace(/\s+/g, "-")
-                              )
-                            }
-                            placeholder="city-slug"
-                            className={`w-full pl-10 pr-4 py-2.5 border rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ${
-                              errors.slug
-                                ? "border-red-300 bg-red-50"
-                                : "border-gray-300"
-                            }`}
-                          />
-                        </div>
-                        {errors.slug && (
-                          <div className="flex items-center gap-1 mt-1.5 text-red-600">
-                            <AlertCircle className="w-3.5 h-3.5" />
-                            <span className="text-xs">{errors.slug}</span>
-                          </div>
-                        )}
-                        <p className="text-xs text-gray-500 mt-1">
-                          Auto-generated from city name
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        Description
-                      </label>
-                      <textarea
-                        value={formData.description}
-                        onChange={(e) =>
-                          handleChange("description", e.target.value)
-                        }
-                        placeholder="Enter city description..."
-                        rows={4}
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                      />
-                    </div>
-                  </div>
+          <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="p-6 space-y-6">
+              {/* Basic Info */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Country <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.country_id}
+                    onChange={(e) => handleFormChange("country_id", parseInt(e.target.value))}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {COUNTRIES.map((country) => (
+                      <option key={country.id} value={country.id}>
+                        {country.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {/* SEO Card */}
-                <div className="bg-white border border-gray-300 rounded">
-                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                    <div className="flex items-center gap-2">
-                      <Globe className="w-5 h-5 text-blue-600" />
-                      <h2 className="text-sm font-semibold text-gray-800">
-                        SEO Settings
-                      </h2>
-                    </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    City Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => handleFormChange("name", e.target.value)}
+                    placeholder="Enter city name"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Auto-fill from Library */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="text-sm font-medium text-blue-800 mb-3 flex items-center gap-2">
+                  <Globe className="w-4 h-4" />
+                  Or Select from City Library
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Select Country
+                    </label>
+                    <select
+                      value={selectedCountryCode}
+                      onChange={(e) => handleCountryCodeChange(e.target.value)}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select Country</option>
+                      {countriesList.map((country) => (
+                        <option key={country.isoCode} value={country.isoCode}>
+                          {country.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
-                  <div className="p-4 space-y-4">
-                    {/* SEO Title */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-sm font-medium text-gray-700">
-                          SEO Title
-                        </label>
-                        <span className="text-xs text-gray-500">
-                          {formData.seo_title.length}/60
-                        </span>
-                      </div>
-                      <input
-                        type="text"
-                        value={formData.seo_title}
-                        onChange={(e) =>
-                          handleChange("seo_title", e.target.value)
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Select City
+                    </label>
+                    <select
+                      disabled={!selectedCountryCode}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleFormChange("name", e.target.value);
                         }
-                        placeholder="Enter SEO title"
-                        maxLength={60}
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    {/* SEO Description */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-sm font-medium text-gray-700">
-                          SEO Description
-                        </label>
-                        <span className="text-xs text-gray-500">
-                          {formData.seo_description.length}/160
-                        </span>
-                      </div>
-                      <textarea
-                        value={formData.seo_description}
-                        onChange={(e) =>
-                          handleChange("seo_description", e.target.value)
-                        }
-                        placeholder="Enter SEO description"
-                        rows={3}
-                        maxLength={160}
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                      />
-                    </div>
-
-                    {/* Focus Keyword */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        Focus Keyword
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.seo_focus_keyword}
-                        onChange={(e) =>
-                          handleChange("seo_focus_keyword", e.target.value)
-                        }
-                        placeholder="Enter focus keyword"
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
+                      }}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                    >
+                      <option value="">Select City</option>
+                      {citiesList.map((city, index) => (
+                        <option key={`${city.name}-${index}`} value={city.name}>
+                          {city.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>
 
-              {/* Sidebar */}
-              <div className="space-y-4">
-                {/* Status Card */}
-                <div className="bg-white border border-gray-300 rounded">
-                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                    <h3 className="text-sm font-semibold text-gray-800">
-                      Status
-                    </h3>
-                  </div>
-                  <div className="p-4">
-                    <div className="flex gap-2">
-                      {STATUS_OPTIONS.map((status) => (
-                        <button
-                          key={status.value}
-                          type="button"
-                          onClick={() => handleChange("status", status.value)}
-                          className={`flex-1 px-3 py-2 rounded text-sm font-medium border-2 transition-all ${
-                            formData.status === status.value
-                              ? `${status.bg} ${status.text} border-current`
-                              : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-                          }`}
-                        >
-                          {status.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+              {/* Coordinates */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Latitude
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.latitude}
+                    onChange={(e) => handleFormChange("latitude", e.target.value)}
+                    placeholder="e.g., 25.2048"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
 
-                {/* Image Card */}
-                <div className="bg-white border border-gray-300 rounded">
-                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                    <div className="flex items-center gap-2">
-                      <ImageIcon className="w-5 h-5 text-amber-600" />
-                      <h3 className="text-sm font-semibold text-gray-800">
-                        City Image
-                      </h3>
-                    </div>
-                  </div>
-                  <div className="p-4 space-y-3">
-                    {/* Current/Preview Image */}
-                    {displayImage && (
-                      <CityImagePreview
-                        src={displayImage}
-                        alt={formData.cities}
-                        onRemove={handleRemoveImage}
-                      />
-                    )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Longitude
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.longitude}
+                    onChange={(e) => handleFormChange("longitude", e.target.value)}
+                    placeholder="e.g., 55.2708"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
 
-                    {newImage && (
-                      <div className="text-xs text-green-600 font-medium">
-                        ✓ New image selected
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Status
+                  </label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => handleFormChange("status", e.target.value)}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Image Upload */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  City Image
+                </label>
+                <div className="flex flex-col gap-4">
+                  {currentImage && (
+                    <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg border">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={currentImage.url}
+                          alt={currentImage.alt || formData.name}
+                          className="w-16 h-16 object-cover rounded border"
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">Current Image</p>
+                          <p className="text-xs text-gray-500">
+                            {currentImage.file_name}
+                          </p>
+                        </div>
                       </div>
-                    )}
-
-                    {/* Upload Area */}
-                    <div className="relative">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageChange}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                      />
-                      <div
-                        className={`border-2 border-dashed rounded p-6 text-center ${
-                          displayImage
-                            ? "border-gray-200 bg-gray-50"
-                            : "border-gray-300 hover:border-blue-400 hover:bg-blue-50/50"
-                        }`}
-                      >
-                        <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600">
-                          {displayImage
-                            ? "Click to change image"
-                            : "Click to upload"}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          PNG, JPG, WEBP (max 5MB)
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Cancel Change Button */}
-                    {(newImage || removeImage) && currentImage && (
                       <button
                         type="button"
-                        onClick={handleCancelImageChange}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
+                        onClick={deleteCurrentImage}
+                        disabled={deleteLoading}
+                        className="px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
                       >
-                        <X className="w-4 h-4" />
-                        Cancel Image Change
+                        {deleteLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                        Remove
                       </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-start gap-4">
+                    <div className="flex-1">
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+                        onChange={handleImageChange}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                      />
+                      <p className="text-xs text-gray-500 mt-2">
+                        Upload new image to replace the current one
+                      </p>
+                    </div>
+                    {imagePreview && (
+                      <div className="relative group">
+                        <img
+                          src={imagePreview}
+                          alt="Preview"
+                          className="w-20 h-20 object-cover border border-gray-300 rounded-lg"
+                        />
+                        <button
+                          type="button"
+                          onClick={clearImage}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
+              </div>
 
-                {/* Info Card */}
-                <div className="bg-amber-50 border border-amber-200 rounded p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <h3 className="text-sm font-medium text-amber-800 mb-1">
-                        Editing Tips
-                      </h3>
-                      <ul className="text-xs text-amber-700 space-y-1">
-                        <li>• Changing the slug will affect existing URLs</li>
-                        <li>• SEO title should be 50-60 characters</li>
-                        <li>• Description helps with search rankings</li>
-                      </ul>
-                    </div>
+              {/* SEO Section */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-medium text-gray-800 mb-4">SEO Information</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      SEO Title
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.seo_title}
+                      onChange={(e) => handleFormChange("seo_title", e.target.value)}
+                      maxLength={60}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">{formData.seo_title.length}/60</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      SEO Description
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={formData.seo_description}
+                      onChange={(e) => handleFormChange("seo_description", e.target.value)}
+                      maxLength={160}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">{formData.seo_description.length}/160</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      SEO Keywords
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.seo_keyword}
+                      onChange={(e) => handleFormChange("seo_keyword", e.target.value)}
+                      placeholder="keyword1, keyword2, keyword3"
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
                 </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description
+                </label>
+                <TextEditor
+                  value={formData.description}
+                  onChange={(value) => handleFormChange("description", value)}
+                  placeholder="Write detailed description about the city..."
+                  className="min-h-[200px] border border-gray-300 rounded-lg overflow-hidden"
+                />
               </div>
             </div>
 
-            {/* Form Footer */}
-            <div className="mt-4 bg-white border border-gray-300 rounded p-3 flex items-center justify-between">
-              <div className="text-sm text-gray-500">
-                {hasChanges() ? (
-                  <span className="text-amber-600 font-medium">
-                    • Unsaved changes
-                  </span>
-                ) : (
-                  "No changes"
-                )}
-              </div>
-              <div className="flex items-center gap-2">
+            {/* Footer Actions */}
+            <div className="border-t px-6 py-4 bg-gray-50 rounded-b-lg">
+              <div className="flex justify-between items-center">
                 <button
                   type="button"
-                  onClick={handleBack}
-                  disabled={saving}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
+                  onClick={() => fastNavigate("/admin/cities")}
+                  className="px-5 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={submitLoading}
                 >
                   Cancel
                 </button>
-                {hasChanges() && (
+                
+                <div className="flex gap-3">
                   <button
                     type="button"
-                    onClick={handleReset}
-                    disabled={saving}
-                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                    onClick={() => {
+                      showConfirm(
+                        "Are you sure you want to delete this city? This action cannot be undone.",
+                        async () => {
+                          const deleteToast = showLoading("Deleting city...");
+                          try {
+                            const response = await fetch(`${API_BASE_URL}/api/v1/cities/${id}`, {
+                              method: "DELETE",
+                              headers: {
+                                Authorization: `Bearer ${getAdminToken()}`,
+                              },
+                            });
+
+                            const data = await response.json();
+                            toast.dismiss(deleteToast);
+
+                            if (data.success) {
+                              showSuccess("City deleted successfully");
+                              setTimeout(() => {
+                                fastNavigate("/admin/cities");
+                              }, 1000);
+                            } else {
+                              showError(data.message || "Failed to delete city");
+                            }
+                          } catch (error) {
+                            toast.dismiss(deleteToast);
+                            console.error("Delete error:", error);
+                            showError("Failed to delete city");
+                          }
+                        }
+                      );
+                    }}
+                    className="px-5 py-2.5 border border-red-300 text-red-600 text-sm font-medium rounded-lg hover:bg-red-50 transition-colors flex items-center gap-2"
+                    disabled={submitLoading}
                   >
-                    Reset
+                    <Trash2 className="w-4 h-4" />
+                    Delete
                   </button>
-                )}
-                <button
-                  type="submit"
-                  disabled={saving || !hasChanges()}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" />
-                      Save Changes
-                    </>
-                  )}
-                </button>
+                  
+                  <button
+                    type="submit"
+                    disabled={submitLoading}
+                    className="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  >
+                    {submitLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Updating...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        Update City
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </form>

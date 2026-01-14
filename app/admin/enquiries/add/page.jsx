@@ -1,680 +1,659 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import axios from "axios";
 import {
-  ArrowLeft,
-  Save,
-  Loader2,
-  X,
-  Upload,
-  Image as ImageIcon,
-  FileText,
+  Search,
+  ChevronDown,
+  MapPin,
   User,
+  Loader2,
+  Trash2,
+  Edit3,
+  Download,
+  RefreshCw,
+  Plus,
+  X,
   Phone,
   Mail,
-  MapPin,
-  Building,
-  Home,
-  DollarSign,
-  Calendar,
   MessageSquare,
-  Settings,
+  Calendar,
+  Building2,
+  DollarSign,
+  Star,
+  Eye,
+  ExternalLink,
+  Filter,
   Users,
-  Target,
-  Briefcase,
+  TrendingUp,
+  Clock,
+  CheckCircle,
   AlertCircle,
-  Check,
-  ChevronDown,
-  Trash2,
+  XCircle,
+  ArrowUpRight,
+  MoreVertical,
+  UserPlus,
+  Tag,
+  Flame,
+  Thermometer,
+  Snowflake,
 } from "lucide-react";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { Toaster, toast } from "react-hot-toast";
 import {
   getAdminToken,
   isAdminTokenValid,
-  getCurrentSessionType,
-  logoutAll,
 } from "../../../../utils/auth";
 import AdminNavbar from "../../dashboard/header/DashboardNavbar";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// ==================== CONSTANTS ====================
+// ==================== AUTH HELPERS ====================
+const getCurrentSessionType = () => {
+  if (typeof window === "undefined") return null;
+  const adminToken = localStorage.getItem("adminToken") || sessionStorage.getItem("adminToken");
+  const userToken = localStorage.getItem("userToken") || sessionStorage.getItem("userToken");
+  if (adminToken) return "admin";
+  if (userToken) return "user";
+  return null;
+};
 
-// Status Options
-const STATUS_OPTIONS = [
-  { value: "New", label: "New" },
-  { value: "In Progress", label: "In Progress" },
-  { value: "Contacted", label: "Contacted" },
-  { value: "Qualified", label: "Qualified" },
-  { value: "Lost", label: "Lost" },
-  { value: "Converted", label: "Converted" },
-];
+const logoutAll = () => {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("adminToken");
+  localStorage.removeItem("userToken");
+  localStorage.removeItem("token");
+  sessionStorage.removeItem("adminToken");
+  sessionStorage.removeItem("userToken");
+  sessionStorage.removeItem("token");
+  document.cookie.split(";").forEach((c) => {
+    document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+  });
+};
 
-// Priority Options
-const PRIORITY_OPTIONS = [
-  { value: "Low", label: "Low" },
-  { value: "Medium", label: "Medium" },
-  { value: "High", label: "High" },
-  { value: "Urgent", label: "Urgent" },
-];
-
-// Quality Options
-const QUALITY_OPTIONS = [
-  { value: "Hot", label: "Hot 🔥" },
-  { value: "Warm", label: "Warm" },
-  { value: "Cold", label: "Cold" },
-];
-
-// Lead Status Options
-const LEAD_STATUS_OPTIONS = [
-  { value: "New", label: "New" },
-  { value: "Follow Up", label: "Follow Up" },
-  { value: "Meeting", label: "Meeting" },
-  { value: "Negotiation", label: "Negotiation" },
-  { value: "Closed", label: "Closed" },
-];
-
-// Lost Status Options
-const LOST_STATUS_OPTIONS = [
-  { value: "not_interested", label: "Not Interested" },
-  { value: "budget_issue", label: "Budget Issue" },
-  { value: "location_issue", label: "Location Issue" },
-  { value: "bought_elsewhere", label: "Bought Elsewhere" },
-  { value: "no_response", label: "No Response" },
-  { value: "other", label: "Other" },
-];
-
-// Type Options
-const TYPE_OPTIONS = [
-  { value: "property", label: "Property Enquiry" },
-  { value: "project", label: "Project Enquiry" },
-  { value: "general", label: "General Enquiry" },
-  { value: "career", label: "Career Enquiry" },
-  { value: "investment", label: "Investment Enquiry" },
-];
-
-// Item Type Options
-const ITEM_TYPE_OPTIONS = [
-  { value: "apartment", label: "Apartment" },
-  { value: "villa", label: "Villa" },
-  { value: "townhouse", label: "Townhouse" },
-  { value: "penthouse", label: "Penthouse" },
-  { value: "duplex", label: "Duplex" },
-  { value: "studio", label: "Studio" },
-  { value: "office", label: "Office" },
-  { value: "retail", label: "Retail" },
-  { value: "warehouse", label: "Warehouse" },
-  { value: "land", label: "Land" },
-];
-
-// Source Options
-const SOURCE_OPTIONS = [
-  { value: "website", label: "Website" },
-  { value: "phone", label: "Phone Call" },
-  { value: "email", label: "Email" },
-  { value: "walk_in", label: "Walk In" },
-  { value: "referral", label: "Referral" },
-  { value: "social_media", label: "Social Media" },
-  { value: "property_finder", label: "Property Finder" },
-  { value: "bayut", label: "Bayut" },
-  { value: "dubizzle", label: "Dubizzle" },
-  { value: "facebook", label: "Facebook" },
-  { value: "instagram", label: "Instagram" },
-  { value: "google_ads", label: "Google Ads" },
-  { value: "exhibition", label: "Exhibition" },
-  { value: "other", label: "Other" },
-];
-
-// Contact Type Options
-const CONTACT_TYPE_OPTIONS = [
-  { value: "buyer", label: "Buyer" },
-  { value: "seller", label: "Seller" },
-  { value: "tenant", label: "Tenant" },
-  { value: "landlord", label: "Landlord" },
-  { value: "investor", label: "Investor" },
-  { value: "agent", label: "Agent" },
-  { value: "developer", label: "Developer" },
-];
-
-// Listing Type Options
-const LISTING_TYPE_OPTIONS = [
-  { value: "sale", label: "For Sale" },
-  { value: "rent", label: "For Rent" },
-  { value: "both", label: "Both (Sale & Rent)" },
-];
-
-// Exclusive Status Options
-const EXCLUSIVE_STATUS_OPTIONS = [
-  { value: "exclusive", label: "Exclusive" },
-  { value: "non_exclusive", label: "Non-Exclusive" },
-  { value: "semi_exclusive", label: "Semi-Exclusive" },
-];
-
-// Construction Status Options
-const CONSTRUCTION_STATUS_OPTIONS = [
-  { value: "ready", label: "Ready to Move" },
-  { value: "off_plan", label: "Off Plan" },
-  { value: "under_construction", label: "Under Construction" },
-  { value: "completed", label: "Completed" },
-];
-
-// Bedroom Options
-const BEDROOM_OPTIONS = [
-  { value: 0, label: "Studio" },
-  { value: 1, label: "1 BR" },
-  { value: 2, label: "2 BR" },
-  { value: 3, label: "3 BR" },
-  { value: 4, label: "4 BR" },
-  { value: 5, label: "5 BR" },
-  { value: 6, label: "6 BR" },
-  { value: 7, label: "7+ BR" },
-];
-
-// ==================== STYLES ====================
-const inputCls = "h-10 w-full border border-gray-300 bg-white px-3 text-[13px] outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-200 rounded transition-all";
-const selectCls = "h-10 w-full border border-gray-300 bg-white px-3 text-[13px] outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-200 rounded transition-all appearance-none cursor-pointer";
-const textareaCls = "w-full border border-gray-300 bg-white px-3 py-2 text-[13px] outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-200 rounded transition-all resize-none";
-const labelCls = "block text-[12px] font-medium text-gray-700 mb-1.5";
-const sectionCls = "bg-white border border-gray-200 rounded-lg p-5 mb-4";
-const sectionTitleCls = "text-[14px] font-semibold text-gray-800 mb-4 flex items-center gap-2";
-const btnPrimary = "h-10 px-5 bg-green-600 hover:bg-green-700 text-white text-[13px] font-semibold rounded inline-flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
-const btnSecondary = "h-10 px-4 border border-gray-300 bg-white text-[13px] hover:bg-gray-50 rounded inline-flex items-center gap-2 transition-colors";
-const btnDanger = "h-10 px-4 border border-red-300 bg-white text-red-600 text-[13px] hover:bg-red-50 rounded inline-flex items-center gap-2 transition-colors";
-
-// ==================== FAST NAVIGATION ====================
-const fastNavigate = (url) => {
-  if (typeof window !== "undefined") {
-    window.location.href = url;
+// ==================== TOKEN VERIFICATION ====================
+const verifyToken = async (token) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    console.error("Token verification failed:", error);
+    throw error;
   }
 };
 
-// ==================== INITIAL FORM DATA ====================
-const initialFormData = {
-  // Basic Info
-  type: "property",
-  item_type: "",
-  source: "website",
-  contact_source: "",
-  lead_source: "",
-  
-  // Contact Info
-  contact_id: "",
-  contact_type: "buyer",
-  
-  // Property/Project Info
-  property_id: "",
-  project_id: "",
-  project_item_id: "",
-  
-  // Location
-  country: "",
-  state_id: "",
-  community_id: "",
-  sub_community_id: "",
-  building: "",
-  
-  // Requirements
-  listing_type: "sale",
-  price_min: "",
-  price_max: "",
-  bedroom_min: "",
-  bedroom_max: "",
-  
-  // Status & Priority
-  status: "New",
-  priority: "Medium",
-  quality: "Warm",
-  lead_status: "New",
-  lost_status: "",
-  
-  // Property Status
-  exclusive_status: "",
-  construction_status: "",
-  
-  // Assignment
-  agent_id: "",
-  
-  // Communication
-  message: "",
-  agent_activity: "",
-  admin_activity: "",
-  
-  // Settings
-  drip_marketing: false,
-  contact_date: "",
-  
-  // Files
-  property_image: null,
-  resume: null,
+// ==================== CONSTANTS ====================
+const STATUS_OPTIONS = [
+  { value: "New", label: "New", color: "bg-blue-100 text-blue-800", icon: Star },
+  { value: "In Progress", label: "In Progress", color: "bg-yellow-100 text-yellow-800", icon: Clock },
+  { value: "Contacted", label: "Contacted", color: "bg-purple-100 text-purple-800", icon: Phone },
+  { value: "Qualified", label: "Qualified", color: "bg-green-100 text-green-800", icon: CheckCircle },
+  { value: "Lost", label: "Lost", color: "bg-red-100 text-red-800", icon: XCircle },
+  { value: "Converted", label: "Converted", color: "bg-emerald-100 text-emerald-800", icon: ArrowUpRight },
+];
+
+const PRIORITY_OPTIONS = [
+  { value: "Low", label: "Low", color: "bg-gray-100 text-gray-800" },
+  { value: "Medium", label: "Medium", color: "bg-blue-100 text-blue-800" },
+  { value: "High", label: "High", color: "bg-orange-100 text-orange-800" },
+  { value: "Urgent", label: "Urgent", color: "bg-red-100 text-red-800" },
+];
+
+const QUALITY_OPTIONS = [
+  { value: "Hot", label: "Hot", color: "bg-red-100 text-red-800", icon: Flame },
+  { value: "Warm", label: "Warm", color: "bg-orange-100 text-orange-800", icon: Thermometer },
+  { value: "Cold", label: "Cold", color: "bg-blue-100 text-blue-800", icon: Snowflake },
+];
+
+const ALL_COLUMNS = [
+  { id: "id", label: "ID", key: "id" },
+  { id: "contact", label: "Contact", key: "contact_id" },
+  { id: "type", label: "Type", key: "type" },
+  { id: "source", label: "Source", key: "source" },
+  { id: "status", label: "Status", key: "status" },
+  { id: "priority", label: "Priority", key: "priority" },
+  { id: "quality", label: "Quality", key: "quality" },
+  { id: "agent", label: "Agent", key: "agent_id" },
+  { id: "property", label: "Property", key: "property_id" },
+  { id: "project", label: "Project", key: "project_id" },
+  { id: "message", label: "Message", key: "message" },
+  { id: "price_range", label: "Price Range", key: "price_min" },
+  { id: "bedrooms", label: "Bedrooms", key: "bedroom_min" },
+  { id: "lead_status", label: "Lead Status", key: "lead_status" },
+  { id: "contact_date", label: "Contact Date", key: "contact_date" },
+  { id: "created_at", label: "Created", key: "created_at" },
+];
+
+// ==================== TOAST HELPERS ====================
+const showSuccess = (message) => {
+  toast.success(message, {
+    duration: 3000,
+    position: "top-right",
+    style: { background: "#10B981", color: "#fff", fontWeight: "500" },
+  });
 };
 
+const showError = (message) => {
+  toast.error(message, {
+    duration: 4000,
+    position: "top-right",
+    style: { background: "#EF4444", color: "#fff", fontWeight: "500" },
+  });
+};
+
+// ==================== STATS CARD COMPONENT ====================
+function StatsCard({ title, value, icon: Icon, color, subValue }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-500">{title}</p>
+          <p className="text-2xl font-bold text-gray-800">{value}</p>
+          {subValue && <p className="text-xs text-gray-400 mt-1">{subValue}</p>}
+        </div>
+        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${color}`}>
+          <Icon className="w-6 h-6" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ==================== MAIN COMPONENT ====================
-export default function AddEnquiryPage() {
-  // ==================== AUTH STATE ====================
+export default function EnquiriesPage() {
+  // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [admin, setAdmin] = useState(null);
   const [logoutLoading, setLogoutLoading] = useState(false);
 
-  // ==================== FORM STATE ====================
-  const [formData, setFormData] = useState(initialFormData);
-  const [errors, setErrors] = useState({});
-  const [submitting, setSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
+  // Page state
+  const [enquiries, setEnquiries] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(null);
+  const [error, setError] = useState(null);
+  const [total, setTotal] = useState(0);
 
-  // ==================== RELATED DATA STATE ====================
-  const [agents, setAgents] = useState([]);
-  const [contacts, setContacts] = useState([]);
-  const [properties, setProperties] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [countries, setCountries] = useState([]);
-  const [states, setStates] = useState([]);
-  const [communities, setCommunities] = useState([]);
-  const [subCommunities, setSubCommunities] = useState([]);
-  const [loadingRelated, setLoadingRelated] = useState(false);
+  // Filters
+  const [activeTab, setActiveTab] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [qualityFilter, setQualityFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  // ==================== FILE PREVIEW STATE ====================
-  const [imagePreview, setImagePreview] = useState(null);
-  const [resumeFileName, setResumeFileName] = useState("");
+  // Pagination
+  const [showCount, setShowCount] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
 
-  // ==================== API HELPER ====================
+  // UI State
+  const [visibleColumns, setVisibleColumns] = useState(
+    new Set(["id", "contact", "type", "source", "status", "priority", "quality", "message", "created_at"])
+  );
+  const [showOverviewDropdown, setShowOverviewDropdown] = useState(false);
+  const [selectedEnquiries, setSelectedEnquiries] = useState(new Set());
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assignTarget, setAssignTarget] = useState(null);
+
+  const isFirstLoad = useRef(true);
+  const loadingToastRef = useRef(null);
+
+  // ==================== AUTHENTICATION ====================
+  const handleAuthFailure = useCallback(() => {
+    logoutAll();
+    setAdmin(null);
+    setIsAuthenticated(false);
+    setAuthLoading(false);
+    window.location.href = "/admin/login";
+  }, []);
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const sessionType = getCurrentSessionType();
+      if (sessionType !== "admin") {
+        showError("Please login as admin to access this page");
+        handleAuthFailure();
+        return;
+      }
+
+      const token = getAdminToken();
+      if (!token || !isAdminTokenValid()) {
+        showError("Session expired. Please login again.");
+        handleAuthFailure();
+        return;
+      }
+
+      try {
+        await verifyToken(token);
+      } catch (verifyError) {
+        console.error("Token verification error:", verifyError);
+      }
+
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        if (payload.userType !== "admin") {
+          showError("Invalid session type. Please login as admin.");
+          handleAuthFailure();
+          return;
+        }
+
+        setAdmin({
+          id: payload.id,
+          name: payload.name,
+          email: payload.email,
+          role: payload.role || "admin",
+          userType: payload.userType,
+        });
+        setIsAuthenticated(true);
+        setAuthLoading(false);
+      } catch (e) {
+        console.error("Token decode error:", e);
+        handleAuthFailure();
+      }
+    } catch (error) {
+      console.error("Auth check error:", error);
+      handleAuthFailure();
+    }
+  }, [handleAuthFailure]);
+
+  const handleLogout = useCallback(async () => {
+    setLogoutLoading(true);
+    const logoutToast = toast.loading("Logging out...", { position: "top-right" });
+
+    try {
+      const token = getAdminToken();
+      await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+
+      toast.dismiss(logoutToast);
+      showSuccess("Logged out successfully");
+    } catch (err) {
+      toast.dismiss(logoutToast);
+      showError("Logout failed. Please try again.");
+    } finally {
+      logoutAll();
+      setAdmin(null);
+      setIsAuthenticated(false);
+      window.location.href = "/admin/login";
+      setLogoutLoading(false);
+    }
+  }, []);
+
+  // ==================== API HELPERS ====================
   const apiRequest = useCallback(async (endpoint, options = {}) => {
     const token = getAdminToken();
-
-    if (!token || !isAdminTokenValid()) {
-      logoutAll();
-      fastNavigate("/admin/login");
-      throw new Error("Session expired");
-    }
-
-    const isFormData = options.body instanceof FormData;
-
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      ...options.headers,
-    };
-
-    if (!isFormData) {
-      headers["Content-Type"] = "application/json";
+    if (!token) {
+      window.location.href = "/admin/login";
+      throw new Error("Please login to continue");
     }
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
-      headers,
-      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...options.headers,
+      },
     });
 
     if (response.status === 401) {
       logoutAll();
-      fastNavigate("/admin/login");
-      throw new Error("Session expired");
+      window.location.href = "/admin/login";
+      throw new Error("Session expired. Please login again.");
     }
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({ message: "Network error" }));
-      throw new Error(err.message || `HTTP ${response.status}`);
+      const error = await response.json().catch(() => ({ message: "Network error" }));
+      throw new Error(error.message || `HTTP error! status: ${response.status}`);
     }
 
     return response.json();
   }, []);
 
-  // ==================== AUTH VERIFICATION ====================
-  useEffect(() => {
-    const verifyAuth = async () => {
-      try {
-        const token = getAdminToken();
-        const sessionType = getCurrentSessionType();
-
-        if (!token || !isAdminTokenValid() || sessionType !== "admin") {
-          logoutAll();
-          fastNavigate("/admin/login");
-          return;
-        }
-
-        const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-        });
-
-        if (!response.ok) throw new Error("Token verification failed");
-
-        const data = await response.json();
-
-        if (data.success && data.admin) {
-          setAdmin(data.admin);
-          setIsAuthenticated(true);
-        } else {
-          throw new Error("Invalid token");
-        }
-      } catch (error) {
-        logoutAll();
-        fastNavigate("/admin/login");
-      } finally {
-        setAuthLoading(false);
-      }
-    };
-
-    verifyAuth();
-  }, []);
-
-  // ==================== FETCH RELATED DATA ====================
-  useEffect(() => {
-    const fetchRelatedData = async () => {
-      if (!isAuthenticated) return;
-
-      setLoadingRelated(true);
-      try {
-        // Fetch all related data in parallel
-        const [agentsRes, contactsRes, propertiesRes, projectsRes, countriesRes] = await Promise.all([
-          apiRequest("/api/v1/users?role=agent").catch(() => ({ data: [] })),
-          apiRequest("/api/v1/contacts").catch(() => ({ data: [] })),
-          apiRequest("/api/v1/properties").catch(() => ({ data: [] })),
-          apiRequest("/api/v1/projects").catch(() => ({ data: [] })),
-          apiRequest("/api/v1/countries").catch(() => ({ data: [] })),
-        ]);
-
-        setAgents(agentsRes.data || agentsRes.users || []);
-        setContacts(contactsRes.data || contactsRes.contacts || []);
-        setProperties(propertiesRes.data || propertiesRes.properties || []);
-        setProjects(projectsRes.data || projectsRes.projects || []);
-        setCountries(countriesRes.data || countriesRes.countries || []);
-      } catch (err) {
-        console.warn("Error fetching related data:", err);
-      } finally {
-        setLoadingRelated(false);
-      }
-    };
-
-    fetchRelatedData();
-  }, [isAuthenticated, apiRequest]);
-
-  // ==================== FETCH STATES WHEN COUNTRY CHANGES ====================
-  useEffect(() => {
-    const fetchStates = async () => {
-      if (!formData.country) {
-        setStates([]);
-        return;
-      }
-
-      try {
-        const res = await apiRequest(`/api/v1/states?country_id=${formData.country}`);
-        setStates(res.data || res.states || []);
-      } catch (err) {
-        console.warn("Error fetching states:", err);
-        setStates([]);
-      }
-    };
-
-    fetchStates();
-  }, [formData.country, apiRequest]);
-
-  // ==================== FETCH COMMUNITIES WHEN STATE CHANGES ====================
-  useEffect(() => {
-    const fetchCommunities = async () => {
-      if (!formData.state_id) {
-        setCommunities([]);
-        return;
-      }
-
-      try {
-        const res = await apiRequest(`/api/v1/community?state_id=${formData.state_id}`);
-        setCommunities(res.data || res.communities || []);
-      } catch (err) {
-        console.warn("Error fetching communities:", err);
-        setCommunities([]);
-      }
-    };
-
-    fetchCommunities();
-  }, [formData.state_id, apiRequest]);
-
-  // ==================== FETCH SUB-COMMUNITIES WHEN COMMUNITY CHANGES ====================
-  useEffect(() => {
-    const fetchSubCommunities = async () => {
-      if (!formData.community_id) {
-        setSubCommunities([]);
-        return;
-      }
-
-      try {
-        const res = await apiRequest(`/api/v1/sub-community?community_id=${formData.community_id}`);
-        setSubCommunities(res.data || res.subCommunities || []);
-      } catch (err) {
-        console.warn("Error fetching sub-communities:", err);
-        setSubCommunities([]);
-      }
-    };
-
-    fetchSubCommunities();
-  }, [formData.community_id, apiRequest]);
-
-  // ==================== LOGOUT HANDLER ====================
-  const handleLogout = useCallback(async () => {
-    try {
-      setLogoutLoading(true);
-      const token = getAdminToken();
-      if (token) {
-        await fetch(`${API_BASE_URL}/api/v1/admin/logout`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: "include",
-        }).catch(() => {});
-      }
-      logoutAll();
-      fastNavigate("/admin/login");
-    } finally {
-      setLogoutLoading(false);
-    }
-  }, []);
-
-  // ==================== FORM HANDLERS ====================
-  const handleChange = useCallback((e) => {
-    const { name, value, type, checked } = e.target;
-    
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
-
-    // Clear error when field is changed
-    if (errors[name]) {
-      setErrors((prev) => {
-        const newErrors = { ...prev };
-        delete newErrors[name];
-        return newErrors;
-      });
-    }
-
-    // Reset dependent fields
-    if (name === "country") {
-      setFormData((prev) => ({
-        ...prev,
-        state_id: "",
-        community_id: "",
-        sub_community_id: "",
-      }));
-    } else if (name === "state_id") {
-      setFormData((prev) => ({
-        ...prev,
-        community_id: "",
-        sub_community_id: "",
-      }));
-    } else if (name === "community_id") {
-      setFormData((prev) => ({
-        ...prev,
-        sub_community_id: "",
-      }));
-    }
-  }, [errors]);
-
-  // ==================== FILE HANDLERS ====================
-  const handleImageChange = useCallback((e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-    if (!allowedTypes.includes(file.type)) {
-      toast.error("Please upload a valid image (JPEG, PNG, or WebP)");
-      return;
-    }
-
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image size should be less than 5MB");
-      return;
-    }
-
-    setFormData((prev) => ({ ...prev, property_image: file }));
-
-    // Create preview
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result);
-    };
-    reader.readAsDataURL(file);
-  }, []);
-
-  const handleResumeChange = useCallback((e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    const allowedTypes = [
-      "application/pdf",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ];
-    if (!allowedTypes.includes(file.type)) {
-      toast.error("Please upload a valid document (PDF or Word)");
-      return;
-    }
-
-    // Validate file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("Resume size should be less than 10MB");
-      return;
-    }
-
-    setFormData((prev) => ({ ...prev, resume: file }));
-    setResumeFileName(file.name);
-  }, []);
-
-  const removeImage = useCallback(() => {
-    setFormData((prev) => ({ ...prev, property_image: null }));
-    setImagePreview(null);
-  }, []);
-
-  const removeResume = useCallback(() => {
-    setFormData((prev) => ({ ...prev, resume: null }));
-    setResumeFileName("");
-  }, []);
-
-  // ==================== VALIDATION ====================
-  const validateForm = useCallback(() => {
-    const newErrors = {};
-
-    // Required validations
-    if (!formData.type) {
-      newErrors.type = "Enquiry type is required";
-    }
-
-    if (!formData.source) {
-      newErrors.source = "Source is required";
-    }
-
-    // Price validation
-    if (formData.price_min && formData.price_max) {
-      if (parseFloat(formData.price_min) > parseFloat(formData.price_max)) {
-        newErrors.price_min = "Min price cannot be greater than max price";
-      }
-    }
-
-    // Bedroom validation
-    if (formData.bedroom_min && formData.bedroom_max) {
-      if (parseInt(formData.bedroom_min) > parseInt(formData.bedroom_max)) {
-        newErrors.bedroom_min = "Min bedrooms cannot be greater than max";
-      }
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [formData]);
-
-  // ==================== SUBMIT HANDLER ====================
-  const handleSubmit = useCallback(async (e) => {
-    e.preventDefault();
-
-    if (!validateForm()) {
-      toast.error("Please fix the errors before submitting");
-      return;
-    }
-
-    setSubmitting(true);
+  // ==================== FETCH ENQUIRIES ====================
+  const fetchEnquiries = useCallback(async (options = {}) => {
+    const { isRefresh = false, showToast = true } = options;
 
     try {
-      // Create FormData for file upload
-      const submitData = new FormData();
+      setError(null);
 
-      // Append all form fields
-      Object.entries(formData).forEach(([key, value]) => {
-        if (value !== null && value !== undefined && value !== "") {
-          if (key === "property_image" || key === "resume") {
-            if (value instanceof File) {
-              submitData.append(key, value);
-            }
-          } else if (key === "drip_marketing") {
-            submitData.append(key, value ? "1" : "0");
-          } else {
-            submitData.append(key, value);
-          }
-        }
-      });
-
-      const result = await apiRequest("/api/v1/enquiries/create", {
-        method: "POST",
-        body: submitData,
-      });
-
-      if (result.success) {
-        setSubmitSuccess(true);
-        toast.success("Enquiry created successfully!");
-        
-        // Redirect after short delay
-        setTimeout(() => {
-          fastNavigate("/admin/enquiries");
-        }, 1500);
+      if (isFirstLoad.current) {
+        setInitialLoading(true);
+      } else if (isRefresh) {
+        setRefreshing(true);
       } else {
-        toast.error(result.message || "Failed to create enquiry");
+        setLoading(true);
+      }
+
+      if (showToast && !isFirstLoad.current) {
+        loadingToastRef.current = toast.loading(
+          isRefresh ? "Refreshing enquiries..." : "Loading enquiries...",
+          { position: "top-right" }
+        );
+      }
+
+      const params = new URLSearchParams();
+
+      if (statusFilter !== "all") params.append("status", statusFilter);
+      if (priorityFilter !== "all") params.append("priority", priorityFilter);
+      if (qualityFilter !== "all") params.append("quality", qualityFilter);
+      if (debouncedSearch.trim()) params.append("search", debouncedSearch.trim());
+
+      if (activeTab === "my" && admin) params.append("agent_id", admin.id);
+      if (activeTab === "new") params.append("status", "New");
+      if (activeTab === "hot") params.append("quality", "Hot");
+      if (activeTab === "converted") params.append("status", "Converted");
+
+      params.append("page", currentPage.toString());
+      params.append("limit", showCount.toString());
+
+      const token = getAdminToken();
+      const response = await axios.get(`${API_BASE_URL}/api/v1/enquiries/list?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        withCredentials: true,
+      });
+
+      if (loadingToastRef.current) {
+        toast.dismiss(loadingToastRef.current);
+        loadingToastRef.current = null;
+      }
+
+      if (response.data.success) {
+        const enquiriesData = response.data.data || [];
+        setEnquiries(enquiriesData);
+        setTotal(response.data.total || enquiriesData.length);
+
+        if (isRefresh && showToast) {
+          showSuccess(`${enquiriesData.length} enquiries loaded`);
+        }
+      } else {
+        setEnquiries([]);
+        setTotal(0);
+      }
+
+      isFirstLoad.current = false;
+    } catch (err) {
+      console.error("Fetch enquiries error:", err);
+
+      if (loadingToastRef.current) {
+        toast.dismiss(loadingToastRef.current);
+        loadingToastRef.current = null;
+      }
+
+      if (err.response?.status === 401) {
+        showError("Session expired. Please login again.");
+        handleAuthFailure();
+      } else {
+        const errorMsg = err.response?.data?.message || "Failed to load enquiries";
+        setError(errorMsg);
+        showError(errorMsg);
+      }
+    } finally {
+      setInitialLoading(false);
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [activeTab, statusFilter, priorityFilter, qualityFilter, debouncedSearch, currentPage, showCount, admin, handleAuthFailure]);
+
+  // ==================== FETCH STATS ====================
+  const fetchStats = useCallback(async () => {
+    try {
+      const token = getAdminToken();
+      const response = await axios.get(`${API_BASE_URL}/api/v1/enquiries/stats`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.data.success) {
+        setStats(response.data.data);
       }
     } catch (err) {
-      toast.error(err.message || "Error creating enquiry");
-    } finally {
-      setSubmitting(false);
-    }
-  }, [formData, validateForm, apiRequest]);
-
-  // ==================== RESET FORM ====================
-  const handleReset = useCallback(() => {
-    if (window.confirm("Are you sure you want to reset the form?")) {
-      setFormData(initialFormData);
-      setErrors({});
-      setImagePreview(null);
-      setResumeFileName("");
+      console.error("Fetch stats error:", err);
     }
   }, []);
 
-  // ==================== LOADING SCREEN ====================
+  // ==================== DELETE HANDLERS ====================
+  const handleDelete = useCallback(async (id) => {
+    const deleteToast = toast.loading("Deleting enquiry...", { position: "top-right" });
+    try {
+      setDeleteLoading(id);
+      await apiRequest(`/api/v1/enquiries/delete/${id}`, { method: "DELETE" });
+      setEnquiries((prev) => prev.filter((e) => e.id !== id));
+      setTotal((prev) => prev - 1);
+
+      toast.dismiss(deleteToast);
+      showSuccess("Enquiry deleted successfully!");
+
+      setShowDeleteModal(false);
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error("Delete Error:", err);
+      toast.dismiss(deleteToast);
+      showError(err.message || "Error deleting enquiry");
+    } finally {
+      setDeleteLoading(null);
+    }
+  }, [apiRequest]);
+
+  const handleDeleteConfirm = useCallback(() => {
+    if (!deleteTarget) return;
+    handleDelete(deleteTarget.id);
+  }, [deleteTarget, handleDelete]);
+
+  const bulkDeleteEnquiries = useCallback(async () => {
+    if (!confirm(`Are you sure you want to delete ${selectedEnquiries.size} enquiries?`)) return;
+
+    const deleteToast = toast.loading("Deleting enquiries...", { position: "top-right" });
+    try {
+      setLoading(true);
+      await apiRequest("/api/v1/enquiries/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify({ ids: Array.from(selectedEnquiries) }),
+      });
+
+      toast.dismiss(deleteToast);
+      setEnquiries((prev) => prev.filter((e) => !selectedEnquiries.has(e.id)));
+      setTotal((prev) => Math.max(0, prev - selectedEnquiries.size));
+      const deletedCount = selectedEnquiries.size;
+      setSelectedEnquiries(new Set());
+      showSuccess(`${deletedCount} enquiries deleted successfully!`);
+    } catch (err) {
+      console.error("Bulk delete error:", err);
+      toast.dismiss(deleteToast);
+      showError("Error deleting some enquiries");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedEnquiries, apiRequest]);
+
+  // ==================== STATUS UPDATE ====================
+  const updateStatus = useCallback(async (id, newStatus) => {
+    try {
+      await apiRequest(`/api/v1/enquiries/status/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      setEnquiries((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, status: newStatus } : e))
+      );
+      showSuccess("Status updated successfully");
+    } catch (err) {
+      console.error("Update status error:", err);
+      showError("Failed to update status");
+    }
+  }, [apiRequest]);
+
+  // ==================== EFFECTS ====================
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchEnquiries({ showToast: false });
+      fetchStats();
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated && !isFirstLoad.current) {
+      setCurrentPage(1);
+      fetchEnquiries({ showToast: true });
+    }
+  }, [activeTab, statusFilter, priorityFilter, qualityFilter]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    if (isAuthenticated && !isFirstLoad.current) {
+      setCurrentPage(1);
+      fetchEnquiries({ showToast: true });
+    }
+  }, [debouncedSearch]);
+
+  // ==================== HANDLERS ====================
+  const handleEdit = useCallback((id) => {
+    window.location.href = `/admin/enquiries/edit/${id}`;
+  }, []);
+
+  const handleView = useCallback((id) => {
+    window.location.href = `/admin/enquiries/view/${id}`;
+  }, []);
+
+  const handleAddEnquiry = useCallback(() => {
+    window.location.href = "/admin/enquiries/add";
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    fetchEnquiries({ isRefresh: true, showToast: true });
+    fetchStats();
+  }, [fetchEnquiries, fetchStats]);
+
+  const handleExport = useCallback(() => {
+    const headers = ["ID", "Type", "Source", "Status", "Priority", "Quality", "Message", "Created At"];
+    const csvData = enquiries.map((e) => [
+      e.id,
+      e.type || "",
+      e.source || "",
+      e.status || "",
+      e.priority || "",
+      e.quality || "",
+      `"${(e.message || "").replace(/"/g, '""')}"`,
+      e.created_at || "",
+    ]);
+
+    const csvContent = [headers.join(","), ...csvData.map((row) => row.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `enquiries_export_${new Date().toISOString().split("T")[0]}.csv`;
+    link.click();
+    showSuccess("Export completed!");
+  }, [enquiries]);
+
+  const formatDate = useCallback((dateString) => {
+    if (!dateString) return "-";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    } catch {
+      return dateString;
+    }
+  }, []);
+
+  const formatPrice = useCallback((min, max) => {
+    if (!min && !max) return "-";
+    const format = (val) =>
+      new Intl.NumberFormat("en-AE", {
+        style: "currency",
+        currency: "AED",
+        minimumFractionDigits: 0,
+      }).format(val);
+
+    if (min && max) return `${format(min)} - ${format(max)}`;
+    if (min) return `From ${format(min)}`;
+    if (max) return `Up to ${format(max)}`;
+    return "-";
+  }, []);
+
+  const toggleColumn = useCallback((columnId) => {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(columnId)) {
+        next.delete(columnId);
+      } else {
+        next.add(columnId);
+      }
+      return next;
+    });
+  }, []);
+
+  const isVisible = useCallback((columnId) => visibleColumns.has(columnId), [visibleColumns]);
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectedEnquiries.size === paginatedEnquiries.length) {
+      setSelectedEnquiries(new Set());
+    } else {
+      setSelectedEnquiries(new Set(paginatedEnquiries.map((e) => e.id)));
+    }
+  }, [selectedEnquiries.size]);
+
+  const toggleSelect = useCallback((id) => {
+    setSelectedEnquiries((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  // ==================== COMPUTED VALUES ====================
+  const filteredEnquiries = useMemo(() => {
+    return Array.isArray(enquiries) ? enquiries.filter((e) => e && e.id) : [];
+  }, [enquiries]);
+
+  const paginatedEnquiries = useMemo(() => {
+    return filteredEnquiries;
+  }, [filteredEnquiries]);
+
+  const totalPages = Math.ceil(total / showCount);
+
+  // ==================== LOADING STATES ====================
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Toaster />
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-gray-700 animate-spin mx-auto mb-3" />
-          <div className="text-sm text-gray-600">Loading...</div>
+          <div className="w-16 h-16 border-4 border-gray-200 border-t-amber-500 rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-gray-600 font-medium">Verifying authentication...</p>
         </div>
       </div>
     );
@@ -684,870 +663,570 @@ export default function AddEnquiryPage() {
     return null;
   }
 
-  // ==================== RENDER ====================
-  return (
-    <>
-      <ToastContainer position="top-right" autoClose={3000} hideProgressBar />
-
-      <AdminNavbar
-        admin={admin}
-        isAuthenticated={isAuthenticated}
-        onLogout={handleLogout}
-        logoutLoading={logoutLoading}
-      />
-
-      <div className="min-h-screen bg-[#f6f6f6]">
-        <div className="max-w-[1200px] mx-auto px-4 py-6">
-          {/* ==================== HEADER ==================== */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => fastNavigate("/admin/enquiries")}
-                className="w-10 h-10 border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-50 rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5 text-gray-700" />
-              </button>
-              <div>
-                <h1 className="text-[20px] font-semibold text-gray-800">Add New Enquiry</h1>
-                <p className="text-[13px] text-gray-500 mt-0.5">
-                  Create a new lead/enquiry in the system
-                </p>
+  if (initialLoading) {
+    return (
+      <>
+        <Toaster position="top-right" />
+        <AdminNavbar admin={admin} isAuthenticated={isAuthenticated} onLogout={handleLogout} logoutLoading={logoutLoading} />
+        <div className="min-h-screen bg-gray-100 pt-4">
+          <div className="p-3">
+            <div className="bg-white border border-gray-300 rounded p-8">
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="w-12 h-12 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin" />
+                <p className="mt-4 text-gray-600 font-medium">Loading enquiries...</p>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button onClick={handleReset} className={btnSecondary}>
-                <X className="w-4 h-4" />
-                Reset
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={submitting || submitSuccess}
-                className={btnPrimary}
-              >
-                {submitting ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : submitSuccess ? (
-                  <Check className="w-4 h-4" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                {submitting ? "Saving..." : submitSuccess ? "Saved!" : "Save Enquiry"}
-              </button>
             </div>
           </div>
+        </div>
+      </>
+    );
+  }
 
-          <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* ==================== LEFT COLUMN ==================== */}
-              <div className="lg:col-span-2 space-y-4">
-                {/* ==================== BASIC INFO ==================== */}
-                <div className={sectionCls}>
-                  <h2 className={sectionTitleCls}>
-                    <Target className="w-4 h-4 text-gray-600" />
-                    Basic Information
-                  </h2>
+  return (
+    <>
+      <Toaster position="top-right" reverseOrder={false} gutter={8} />
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Type */}
-                    <div>
-                      <label className={labelCls}>
-                        Enquiry Type <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <select
-                          name="type"
-                          value={formData.type}
-                          onChange={handleChange}
-                          className={`${selectCls} ${errors.type ? "border-red-500" : ""}`}
-                        >
-                          {TYPE_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                      {errors.type && (
-                        <p className="text-[11px] text-red-500 mt-1">{errors.type}</p>
-                      )}
-                    </div>
+      <AdminNavbar admin={admin} isAuthenticated={isAuthenticated} onLogout={handleLogout} logoutLoading={logoutLoading} />
 
-                    {/* Item Type */}
-                    <div>
-                      <label className={labelCls}>Property Type</label>
-                      <div className="relative">
-                        <select
-                          name="item_type"
-                          value={formData.item_type}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          <option value="">Select Property Type</option>
-                          {ITEM_TYPE_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Source */}
-                    <div>
-                      <label className={labelCls}>
-                        Source <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <select
-                          name="source"
-                          value={formData.source}
-                          onChange={handleChange}
-                          className={`${selectCls} ${errors.source ? "border-red-500" : ""}`}
-                        >
-                          {SOURCE_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                      {errors.source && (
-                        <p className="text-[11px] text-red-500 mt-1">{errors.source}</p>
-                      )}
-                    </div>
-
-                    {/* Contact Type */}
-                    <div>
-                      <label className={labelCls}>Contact Type</label>
-                      <div className="relative">
-                        <select
-                          name="contact_type"
-                          value={formData.contact_type}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          {CONTACT_TYPE_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Contact Source */}
-                    <div>
-                      <label className={labelCls}>Contact Source</label>
-                      <input
-                        type="text"
-                        name="contact_source"
-                        value={formData.contact_source}
-                        onChange={handleChange}
-                        placeholder="e.g., John's Referral"
-                        className={inputCls}
-                      />
-                    </div>
-
-                    {/* Lead Source */}
-                    <div>
-                      <label className={labelCls}>Lead Source</label>
-                      <input
-                        type="text"
-                        name="lead_source"
-                        value={formData.lead_source}
-                        onChange={handleChange}
-                        placeholder="e.g., Property Finder Ad"
-                        className={inputCls}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* ==================== CONTACT / PROPERTY LINKING ==================== */}
-                <div className={sectionCls}>
-                  <h2 className={sectionTitleCls}>
-                    <Users className="w-4 h-4 text-gray-600" />
-                    Link to Contact / Property
-                  </h2>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Contact */}
-                    <div>
-                      <label className={labelCls}>Link to Contact</label>
-                      <div className="relative">
-                        <select
-                          name="contact_id"
-                          value={formData.contact_id}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          <option value="">Select Contact (Optional)</option>
-                          {contacts.map((contact) => (
-                            <option key={contact.id} value={contact.id}>
-                              {contact.name} - {contact.email || contact.phone}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Property */}
-                    <div>
-                      <label className={labelCls}>Link to Property</label>
-                      <div className="relative">
-                        <select
-                          name="property_id"
-                          value={formData.property_id}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          <option value="">Select Property (Optional)</option>
-                          {properties.map((property) => (
-                            <option key={property.id} value={property.id}>
-                              {property.title || property.reference_no || `Property #${property.id}`}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Project */}
-                    <div>
-                      <label className={labelCls}>Link to Project</label>
-                      <div className="relative">
-                        <select
-                          name="project_id"
-                          value={formData.project_id}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          <option value="">Select Project (Optional)</option>
-                          {projects.map((project) => (
-                            <option key={project.id} value={project.id}>
-                              {project.name || project.title || `Project #${project.id}`}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Project Item ID */}
-                    <div>
-                      <label className={labelCls}>Project Item/Unit ID</label>
-                      <input
-                        type="number"
-                        name="project_item_id"
-                        value={formData.project_item_id}
-                        onChange={handleChange}
-                        placeholder="Enter unit ID"
-                        className={inputCls}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* ==================== LOCATION ==================== */}
-                <div className={sectionCls}>
-                  <h2 className={sectionTitleCls}>
-                    <MapPin className="w-4 h-4 text-gray-600" />
-                    Location Preferences
-                  </h2>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Country */}
-                    <div>
-                      <label className={labelCls}>Country</label>
-                      <div className="relative">
-                        <select
-                          name="country"
-                          value={formData.country}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          <option value="">Select Country</option>
-                          {countries.map((country) => (
-                            <option key={country.id} value={country.id}>
-                              {country.name}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* State */}
-                    <div>
-                      <label className={labelCls}>State/Emirate</label>
-                      <div className="relative">
-                        <select
-                          name="state_id"
-                          value={formData.state_id}
-                          onChange={handleChange}
-                          className={selectCls}
-                          disabled={!formData.country}
-                        >
-                          <option value="">Select State</option>
-                          {states.map((state) => (
-                            <option key={state.id} value={state.id}>
-                              {state.name}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Community */}
-                    <div>
-                      <label className={labelCls}>Community</label>
-                      <div className="relative">
-                        <select
-                          name="community_id"
-                          value={formData.community_id}
-                          onChange={handleChange}
-                          className={selectCls}
-                          disabled={!formData.state_id}
-                        >
-                          <option value="">Select Community</option>
-                          {communities.map((community) => (
-                            <option key={community.id} value={community.id}>
-                              {community.name}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Sub Community */}
-                    <div>
-                      <label className={labelCls}>Sub Community</label>
-                      <div className="relative">
-                        <select
-                          name="sub_community_id"
-                          value={formData.sub_community_id}
-                          onChange={handleChange}
-                          className={selectCls}
-                          disabled={!formData.community_id}
-                        >
-                          <option value="">Select Sub Community</option>
-                          {subCommunities.map((sub) => (
-                            <option key={sub.id} value={sub.id}>
-                              {sub.name}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Building */}
-                    <div className="md:col-span-2">
-                      <label className={labelCls}>Building / Tower Name</label>
-                      <input
-                        type="text"
-                        name="building"
-                        value={formData.building}
-                        onChange={handleChange}
-                        placeholder="e.g., Burj Khalifa, Marina Tower"
-                        className={inputCls}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* ==================== REQUIREMENTS ==================== */}
-                <div className={sectionCls}>
-                  <h2 className={sectionTitleCls}>
-                    <Home className="w-4 h-4 text-gray-600" />
-                    Property Requirements
-                  </h2>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Listing Type */}
-                    <div>
-                      <label className={labelCls}>Looking For</label>
-                      <div className="relative">
-                        <select
-                          name="listing_type"
-                          value={formData.listing_type}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          {LISTING_TYPE_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Construction Status */}
-                    <div>
-                      <label className={labelCls}>Construction Status</label>
-                      <div className="relative">
-                        <select
-                          name="construction_status"
-                          value={formData.construction_status}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          <option value="">Any Status</option>
-                          {CONSTRUCTION_STATUS_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Price Min */}
-                    <div>
-                      <label className={labelCls}>Budget Min (AED)</label>
-                      <div className="relative">
-                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                        <input
-                          type="number"
-                          name="price_min"
-                          value={formData.price_min}
-                          onChange={handleChange}
-                          placeholder="0"
-                          min="0"
-                          className={`${inputCls} pl-9 ${errors.price_min ? "border-red-500" : ""}`}
-                        />
-                      </div>
-                      {errors.price_min && (
-                        <p className="text-[11px] text-red-500 mt-1">{errors.price_min}</p>
-                      )}
-                    </div>
-
-                    {/* Price Max */}
-                    <div>
-                      <label className={labelCls}>Budget Max (AED)</label>
-                      <div className="relative">
-                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                        <input
-                          type="number"
-                          name="price_max"
-                          value={formData.price_max}
-                          onChange={handleChange}
-                          placeholder="0"
-                          min="0"
-                          className={`${inputCls} pl-9`}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Bedroom Min */}
-                    <div>
-                      <label className={labelCls}>Bedrooms (Min)</label>
-                      <div className="relative">
-                        <select
-                          name="bedroom_min"
-                          value={formData.bedroom_min}
-                          onChange={handleChange}
-                          className={`${selectCls} ${errors.bedroom_min ? "border-red-500" : ""}`}
-                        >
-                          <option value="">Any</option>
-                          {BEDROOM_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                      {errors.bedroom_min && (
-                        <p className="text-[11px] text-red-500 mt-1">{errors.bedroom_min}</p>
-                      )}
-                    </div>
-
-                    {/* Bedroom Max */}
-                    <div>
-                      <label className={labelCls}>Bedrooms (Max)</label>
-                      <div className="relative">
-                        <select
-                          name="bedroom_max"
-                          value={formData.bedroom_max}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          <option value="">Any</option>
-                          {BEDROOM_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Exclusive Status */}
-                    <div>
-                      <label className={labelCls}>Exclusive Status</label>
-                      <div className="relative">
-                        <select
-                          name="exclusive_status"
-                          value={formData.exclusive_status}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          <option value="">Not Specified</option>
-                          {EXCLUSIVE_STATUS_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* ==================== MESSAGE & ACTIVITY ==================== */}
-                <div className={sectionCls}>
-                  <h2 className={sectionTitleCls}>
-                    <MessageSquare className="w-4 h-4 text-gray-600" />
-                    Message & Activity Notes
-                  </h2>
-
-                  <div className="space-y-4">
-                    {/* Message */}
-                    <div>
-                      <label className={labelCls}>Enquiry Message</label>
-                      <textarea
-                        name="message"
-                        value={formData.message}
-                        onChange={handleChange}
-                        placeholder="Enter client's message or requirements..."
-                        rows={4}
-                        className={textareaCls}
-                      />
-                    </div>
-
-                    {/* Agent Activity */}
-                    <div>
-                      <label className={labelCls}>Agent Activity Notes</label>
-                      <textarea
-                        name="agent_activity"
-                        value={formData.agent_activity}
-                        onChange={handleChange}
-                        placeholder="Notes from agent interactions..."
-                        rows={3}
-                        className={textareaCls}
-                      />
-                    </div>
-
-                    {/* Admin Activity */}
-                    <div>
-                      <label className={labelCls}>Admin Activity Notes</label>
-                      <textarea
-                        name="admin_activity"
-                        value={formData.admin_activity}
-                        onChange={handleChange}
-                        placeholder="Admin notes and remarks..."
-                        rows={3}
-                        className={textareaCls}
-                      />
-                    </div>
-                  </div>
-                </div>
+      <div className="min-h-screen bg-gray-100 pt-4">
+        {/* Delete Modal */}
+        {showDeleteModal && deleteTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setShowDeleteModal(false)} />
+            <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
+              <div className="flex items-center justify-between px-6 py-4 border-b">
+                <h3 className="text-lg font-semibold text-gray-800">Delete Enquiry</h3>
+                <button onClick={() => setShowDeleteModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
               </div>
-
-              {/* ==================== RIGHT COLUMN ==================== */}
-              <div className="space-y-4">
-                {/* ==================== STATUS & PRIORITY ==================== */}
-                <div className={sectionCls}>
-                  <h2 className={sectionTitleCls}>
-                    <Settings className="w-4 h-4 text-gray-600" />
-                    Status & Priority
-                  </h2>
-
-                  <div className="space-y-4">
-                    {/* Status */}
-                    <div>
-                      <label className={labelCls}>Status</label>
-                      <div className="relative">
-                        <select
-                          name="status"
-                          value={formData.status}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          {STATUS_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Lead Status */}
-                    <div>
-                      <label className={labelCls}>Lead Status</label>
-                      <div className="relative">
-                        <select
-                          name="lead_status"
-                          value={formData.lead_status}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          {LEAD_STATUS_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Priority */}
-                    <div>
-                      <label className={labelCls}>Priority</label>
-                      <div className="flex flex-wrap gap-2">
-                        {PRIORITY_OPTIONS.map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => setFormData((prev) => ({ ...prev, priority: opt.value }))}
-                            className={`px-3 py-1.5 text-[12px] border rounded transition-colors ${
-                              formData.priority === opt.value
-                                ? "bg-gray-900 text-white border-gray-900"
-                                : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Quality */}
-                    <div>
-                      <label className={labelCls}>Lead Quality</label>
-                      <div className="flex flex-wrap gap-2">
-                        {QUALITY_OPTIONS.map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => setFormData((prev) => ({ ...prev, quality: opt.value }))}
-                            className={`px-3 py-1.5 text-[12px] border rounded transition-colors ${
-                              formData.quality === opt.value
-                                ? "bg-gray-900 text-white border-gray-900"
-                                : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Lost Status (show only if status is Lost) */}
-                    {formData.status === "Lost" && (
-                      <div>
-                        <label className={labelCls}>Lost Reason</label>
-                        <div className="relative">
-                          <select
-                            name="lost_status"
-                            value={formData.lost_status}
-                            onChange={handleChange}
-                            className={selectCls}
-                          >
-                            <option value="">Select Reason</option>
-                            {LOST_STATUS_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* ==================== ASSIGNMENT ==================== */}
-                <div className={sectionCls}>
-                  <h2 className={sectionTitleCls}>
-                    <Briefcase className="w-4 h-4 text-gray-600" />
-                    Assignment
-                  </h2>
-
-                  <div className="space-y-4">
-                    {/* Assign Agent */}
-                    <div>
-                      <label className={labelCls}>Assign to Agent</label>
-                      <div className="relative">
-                        <select
-                          name="agent_id"
-                          value={formData.agent_id}
-                          onChange={handleChange}
-                          className={selectCls}
-                        >
-                          <option value="">Select Agent</option>
-                          {agents.map((agent) => (
-                            <option key={agent.id} value={agent.id}>
-                              {agent.name || agent.username}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
-
-                    {/* Contact Date */}
-                    <div>
-                      <label className={labelCls}>Contact Date</label>
-                      <div className="relative">
-                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                        <input
-                          type="date"
-                          name="contact_date"
-                          value={formData.contact_date}
-                          onChange={handleChange}
-                          className={`${inputCls} pl-9`}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Drip Marketing */}
-                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                      <input
-                        type="checkbox"
-                        id="drip_marketing"
-                        name="drip_marketing"
-                        checked={formData.drip_marketing}
-                        onChange={handleChange}
-                        className="w-4 h-4 rounded border-gray-300"
-                      />
-                      <label htmlFor="drip_marketing" className="text-[13px] text-gray-700 cursor-pointer">
-                        Enable Drip Marketing
-                        <p className="text-[11px] text-gray-500 mt-0.5">
-                          Auto-send scheduled marketing emails
-                        </p>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                {/* ==================== FILES ==================== */}
-                <div className={sectionCls}>
-                  <h2 className={sectionTitleCls}>
-                    <Upload className="w-4 h-4 text-gray-600" />
-                    Attachments
-                  </h2>
-
-                  <div className="space-y-4">
-                    {/* Property Image */}
-                    <div>
-                      <label className={labelCls}>Property Image</label>
-                      {imagePreview ? (
-                        <div className="relative">
-                          <img
-                            src={imagePreview}
-                            alt="Preview"
-                            className="w-full h-40 object-cover rounded-lg border border-gray-200"
-                          />
-                          <button
-                            type="button"
-                            onClick={removeImage}
-                            className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-gray-400 transition-colors bg-gray-50">
-                          <ImageIcon className="w-8 h-8 text-gray-400 mb-2" />
-                          <span className="text-[12px] text-gray-500">Click to upload image</span>
-                          <span className="text-[11px] text-gray-400 mt-1">PNG, JPG up to 5MB</span>
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp"
-                            onChange={handleImageChange}
-                            className="hidden"
-                          />
-                        </label>
-                      )}
-                    </div>
-
-                    {/* Resume (for career enquiries) */}
-                    {formData.type === "career" && (
-                      <div>
-                        <label className={labelCls}>Resume / CV</label>
-                        {resumeFileName ? (
-                          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                            <div className="flex items-center gap-2">
-                              <FileText className="w-5 h-5 text-blue-500" />
-                              <span className="text-[12px] text-gray-700 truncate max-w-[180px]">
-                                {resumeFileName}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={removeResume}
-                              className="p-1.5 hover:bg-red-100 rounded transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-500" />
-                            </button>
-                          </div>
-                        ) : (
-                          <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-gray-400 transition-colors bg-gray-50">
-                            <FileText className="w-6 h-6 text-gray-400 mb-1" />
-                            <span className="text-[12px] text-gray-500">Upload Resume</span>
-                            <span className="text-[11px] text-gray-400">PDF, DOC up to 10MB</span>
-                            <input
-                              type="file"
-                              accept=".pdf,.doc,.docx"
-                              onChange={handleResumeChange}
-                              className="hidden"
-                            />
-                          </label>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* ==================== SUBMIT BUTTON (Mobile) ==================== */}
-                <div className="lg:hidden">
+              <div className="p-6">
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to delete this enquiry? This action cannot be undone.
+                </p>
+                <div className="flex items-center gap-3 justify-end">
                   <button
-                    type="submit"
-                    disabled={submitting || submitSuccess}
-                    className={`${btnPrimary} w-full justify-center`}
+                    onClick={() => setShowDeleteModal(false)}
+                    disabled={deleteLoading}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
                   >
-                    {submitting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : submitSuccess ? (
-                      <Check className="w-4 h-4" />
-                    ) : (
-                      <Save className="w-4 h-4" />
-                    )}
-                    {submitting ? "Saving..." : submitSuccess ? "Saved!" : "Save Enquiry"}
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteConfirm}
+                    disabled={deleteLoading}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deleteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    Delete
                   </button>
                 </div>
               </div>
             </div>
-          </form>
+          </div>
+        )}
+
+        {/* Overview Dropdown Modal */}
+        {showOverviewDropdown && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0" onClick={() => setShowOverviewDropdown(false)} />
+            <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl border border-gray-300">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <h3 className="text-sm font-medium text-gray-800">Show / Hide Columns</h3>
+                <button onClick={() => setShowOverviewDropdown(false)} className="p-1 hover:bg-gray-100 rounded">
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+              <div className="p-4">
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  {ALL_COLUMNS.map((col) => (
+                    <label key={col.id} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900">
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns.has(col.id)}
+                        onChange={() => toggleColumn(col.id)}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => {
+                      setShowOverviewDropdown(false);
+                      showSuccess("Columns updated successfully");
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="p-3">
+          {/* Stats Cards */}
+          {stats && (
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
+              <StatsCard
+                title="Total Enquiries"
+                value={stats.total || 0}
+                icon={MessageSquare}
+                color="bg-blue-100 text-blue-600"
+              />
+              <StatsCard
+                title="Today"
+                value={stats.today || 0}
+                icon={Calendar}
+                color="bg-green-100 text-green-600"
+              />
+              <StatsCard
+                title="This Week"
+                value={stats.thisWeek || 0}
+                icon={TrendingUp}
+                color="bg-purple-100 text-purple-600"
+              />
+              <StatsCard
+                title="This Month"
+                value={stats.thisMonth || 0}
+                icon={Clock}
+                color="bg-orange-100 text-orange-600"
+              />
+              <StatsCard
+                title="Hot Leads"
+                value={stats.byQuality?.Hot || 0}
+                icon={Flame}
+                color="bg-red-100 text-red-600"
+              />
+              <StatsCard
+                title="Converted"
+                value={stats.byStatus?.Converted || 0}
+                icon={CheckCircle}
+                color="bg-emerald-100 text-emerald-600"
+              />
+            </div>
+          )}
+
+          {/* Controls */}
+          <div className="bg-white border border-gray-300 rounded-t p-3">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAddEnquiry}
+                  style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded hover:opacity-90"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Enquiry
+                </button>
+
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading || refreshing}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+                  {refreshing ? "Refreshing..." : "Refresh"}
+                </button>
+
+                <button
+                  onClick={handleExport}
+                  disabled={enquiries.length === 0}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search enquiries..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-4 pr-10 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-64"
+                  />
+                  <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-gray-800 hover:bg-gray-700 rounded">
+                    <Search className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setShowOverviewDropdown(!showOverviewDropdown)}
+                  style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
+                  className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-sm font-medium rounded hover:opacity-90"
+                >
+                  Overview
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Tabs & Filters */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2">
+                {[
+                  { key: "all", label: "All Enquiries" },
+                  { key: "new", label: "New" },
+                  { key: "hot", label: "Hot Leads" },
+                  { key: "converted", label: "Converted" },
+                  { key: "my", label: "My Enquiries" },
+                ].map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setActiveTab(t.key)}
+                    disabled={loading}
+                    className={`px-3 py-1.5 text-xs rounded border transition-colors disabled:opacity-50 ${
+                      activeTab === t.key
+                        ? "bg-gray-800 border-gray-800 text-white font-medium"
+                        : "bg-gray-100 border-gray-200 text-gray-700 hover:bg-white"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  disabled={loading}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  <option value="all">All Status</option>
+                  {STATUS_OPTIONS.map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  disabled={loading}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  <option value="all">All Priority</option>
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+
+                <select
+                  value={qualityFilter}
+                  onChange={(e) => setQualityFilter(e.target.value)}
+                  disabled={loading}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  <option value="all">All Quality</option>
+                  {QUALITY_OPTIONS.map((q) => (
+                    <option key={q.value} value={q.value}>{q.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center text-sm text-gray-600">
+              <span className="mr-2">Show</span>
+              <select
+                value={showCount}
+                onChange={(e) => {
+                  setShowCount(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {[10, 25, 50, 100].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <span className="ml-2">entries</span>
+              <span className="ml-4 text-gray-500">
+                Total: {total} enquiries
+                {loading && !refreshing && (
+                  <span className="ml-2 inline-flex items-center">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* Bulk Actions */}
+          {selectedEnquiries.size > 0 && (
+            <div className="bg-blue-50 border border-blue-200 border-t-0 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm text-blue-900">
+                <strong>{selectedEnquiries.size}</strong> enquiries selected
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSelectedEnquiries(new Set())} className="text-sm underline text-blue-700">
+                  Clear Selection
+                </button>
+                <button
+                  onClick={bulkDeleteEnquiries}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete Selected
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Table */}
+          <div className="border border-gray-300 border-t-0 relative" style={{ backgroundColor: "rgb(236,237,238)" }}>
+            {(loading || refreshing) && filteredEnquiries.length > 0 && (
+              <div className="absolute inset-0 bg-white/60 z-10 flex items-center justify-center">
+                <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-lg shadow-lg">
+                  <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                  <span className="text-gray-700 font-medium">{refreshing ? "Refreshing..." : "Loading..."}</span>
+                </div>
+              </div>
+            )}
+
+            {filteredEnquiries.length === 0 && !loading ? (
+              <div className="text-center py-12">
+                <MessageSquare className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-600">No enquiries found</p>
+                {debouncedSearch && <p className="text-sm text-gray-500 mt-1">Try a different search term</p>}
+                <button
+                  onClick={handleAddEnquiry}
+                  className="mt-4 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Add New Enquiry
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full" style={{ backgroundColor: "rgb(236,237,238)" }}>
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-300">
+                      <th className="w-10 px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedEnquiries.size === paginatedEnquiries.length && paginatedEnquiries.length > 0}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 rounded border-gray-300"
+                        />
+                      </th>
+                      {isVisible("id") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">ID</th>}
+                      {isVisible("contact") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Contact</th>}
+                      {isVisible("type") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Type</th>}
+                      {isVisible("source") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Source</th>}
+                      {isVisible("status") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Status</th>}
+                      {isVisible("priority") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Priority</th>}
+                      {isVisible("quality") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Quality</th>}
+                      {isVisible("agent") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Agent</th>}
+                      {isVisible("message") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Message</th>}
+                      {isVisible("price_range") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Price Range</th>}
+                      {isVisible("bedrooms") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Bedrooms</th>}
+                      {isVisible("created_at") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Created</th>}
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedEnquiries.map((enquiry) => {
+                      const statusInfo = STATUS_OPTIONS.find((s) => s.value === enquiry.status) || STATUS_OPTIONS[0];
+                      const priorityInfo = PRIORITY_OPTIONS.find((p) => p.value === enquiry.priority);
+                      const qualityInfo = QUALITY_OPTIONS.find((q) => q.value === enquiry.quality);
+
+                      return (
+                        <tr key={enquiry.id} className="border-b border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedEnquiries.has(enquiry.id)}
+                              onChange={() => toggleSelect(enquiry.id)}
+                              className="w-4 h-4 rounded border-gray-300"
+                            />
+                          </td>
+                          {isVisible("id") && (
+                            <td className="px-4 py-3">
+                              <button onClick={() => handleEdit(enquiry.id)} className="text-blue-600 hover:underline text-sm font-medium">
+                                #{enquiry.id}
+                              </button>
+                            </td>
+                          )}
+                          {isVisible("contact") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {enquiry.contact_id ? `#${enquiry.contact_id}` : "-"}
+                            </td>
+                          )}
+                          {isVisible("type") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">{enquiry.type || "-"}</td>
+                          )}
+                          {isVisible("source") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">{enquiry.source || "-"}</td>
+                          )}
+                          {isVisible("status") && (
+                            <td className="px-4 py-3">
+                              <select
+                                value={enquiry.status || "New"}
+                                onChange={(e) => updateStatus(enquiry.id, e.target.value)}
+                                className={`text-xs font-medium px-2 py-1 rounded ${statusInfo.color} border-0 cursor-pointer`}
+                              >
+                                {STATUS_OPTIONS.map((s) => (
+                                  <option key={s.value} value={s.value}>{s.label}</option>
+                                ))}
+                              </select>
+                            </td>
+                          )}
+                          {isVisible("priority") && (
+                            <td className="px-4 py-3">
+                              {priorityInfo ? (
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${priorityInfo.color}`}>
+                                  {priorityInfo.label}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                          )}
+                          {isVisible("quality") && (
+                            <td className="px-4 py-3">
+                              {qualityInfo ? (
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${qualityInfo.color}`}>
+                                  {qualityInfo.icon && <qualityInfo.icon className="w-3 h-3" />}
+                                  {qualityInfo.label}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                          )}
+                          {isVisible("agent") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {enquiry.agent_id ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <User className="w-3 h-3" />
+                                  #{enquiry.agent_id}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">Unassigned</span>
+                              )}
+                            </td>
+                          )}
+                          {isVisible("message") && (
+                            <td className="px-4 py-3 text-sm text-gray-600 max-w-[200px]">
+                              <span className="truncate block" title={enquiry.message}>
+                                {enquiry.message?.substring(0, 50) || "-"}
+                                {enquiry.message?.length > 50 ? "..." : ""}
+                              </span>
+                            </td>
+                          )}
+                          {isVisible("price_range") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {formatPrice(enquiry.price_min, enquiry.price_max)}
+                            </td>
+                          )}
+                          {isVisible("bedrooms") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {enquiry.bedroom_min || enquiry.bedroom_max
+                                ? `${enquiry.bedroom_min || "?"} - ${enquiry.bedroom_max || "?"}`
+                                : "-"}
+                            </td>
+                          )}
+                          {isVisible("created_at") && (
+                            <td className="px-4 py-3 text-sm text-gray-600">{formatDate(enquiry.created_at)}</td>
+                          )}
+                          <td className="px-4 py-3 text-sm">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleView(enquiry.id)}
+                                className="p-1.5 rounded hover:bg-gray-100 text-gray-600"
+                                title="View"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleEdit(enquiry.id)}
+                                className="p-1.5 rounded hover:bg-blue-50 text-blue-600"
+                                title="Edit"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setDeleteTarget({ id: enquiry.id });
+                                  setShowDeleteModal(true);
+                                }}
+                                disabled={deleteLoading === enquiry.id}
+                                className="p-1.5 rounded hover:bg-red-50 text-red-600 disabled:opacity-50"
+                                title="Delete"
+                              >
+                                {deleteLoading === enquiry.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Pagination */}
+          {filteredEnquiries.length > 0 && (
+            <div className="flex items-center justify-between bg-white border border-gray-300 border-t-0 px-4 py-3 rounded-b">
+              <div className="text-sm text-gray-600">
+                Showing {(currentPage - 1) * showCount + 1} to {Math.min(currentPage * showCount, total)} of {total} entries
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  disabled={currentPage === 1 || loading}
+                  className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      disabled={loading}
+                      className={`px-3 py-1.5 border rounded text-sm disabled:opacity-50 ${
+                        currentPage === pageNum
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages || loading}
+                  className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>

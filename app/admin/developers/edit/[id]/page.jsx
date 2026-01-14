@@ -383,8 +383,9 @@ export default function EditDeveloperPage() {
         return;
       }
 
+      // ✅ FIXED: Use /admin/ endpoint
       const response = await axios.get(
-        `${API_BASE_URL}/api/v1/developers/${developerId}`,
+        `${API_BASE_URL}/api/v1/developers/admin/${developerId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -392,7 +393,6 @@ export default function EditDeveloperPage() {
         }
       );
 
-      // ✅ FIXED: Correct data path
       if (response.data.success && response.data.data) {
         const developer = response.data.data;
 
@@ -409,7 +409,7 @@ export default function EditDeveloperPage() {
           seo_title: developer.seo_title || "",
           seo_slug: developer.seo_slug || utils.generateSlug(developer.name),
           seo_description: developer.seo_description || "",
-          seo_keyword: developer.seo_keywork || developer.seo_keyword || "", // Note: API has typo
+          seo_keyword: developer.seo_keywork || developer.seo_keyword || "",
           total_project: developer.total_project || "",
           total_project_withus: developer.total_project_withus || "",
           total_url: developer.total_url || "",
@@ -514,7 +514,7 @@ export default function EditDeveloperPage() {
     const reader = new FileReader();
     reader.onload = (ev) => setLogoPreview(ev.target.result);
     reader.readAsDataURL(file);
-    setExistingImage(null); // Clear existing image when new one is uploaded
+    setExistingImage(null);
     toast.success("Logo uploaded successfully");
   };
 
@@ -613,7 +613,7 @@ export default function EditDeveloperPage() {
         seo_title: "seo_title",
         seo_slug: "seo_slug",
         seo_description: "seo_description",
-        seo_keyword: "seo_keywork", // Note: API might have typo
+        seo_keyword: "seo_keywork",
         total_project: "total_project",
         total_project_withus: "total_project_withus",
         total_url: "total_url",
@@ -632,8 +632,9 @@ export default function EditDeveloperPage() {
         formData.append("image", logo);
       }
 
+      // ✅ FIXED: Use /admin/ endpoint
       const response = await axios.put(
-        `${API_BASE_URL}/api/v1/developers/${developerId}`,
+        `${API_BASE_URL}/api/v1/developers/admin/${developerId}`,
         formData,
         {
           headers: {

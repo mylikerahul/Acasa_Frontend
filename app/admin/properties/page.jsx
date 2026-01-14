@@ -1,7 +1,10 @@
+// app/admin/properties/page.jsx - FULL FEATURED FIXED VERSION
+
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Search,
   ChevronDown,
@@ -20,51 +23,26 @@ import {
   ExternalLink,
   ImageIcon,
   ArrowUp,
+  AlertCircle,
 } from "lucide-react";
 import { Toaster, toast } from "react-hot-toast";
+
 import {
   getAdminToken,
   isAdminTokenValid,
-  getCurrentSessionType,
-  logoutAll,
+  clearAdminTokens,
+  getAdminUser,
+  decodeToken,
 } from "../../../utils/auth";
+
 import AdminNavbar from "../dashboard/header/DashboardNavbar";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 const ITEMS_PER_LOAD = 50;
-const CACHE_DURATION = 30000;
 
-// ==================== CACHE MANAGER ====================
-class CacheManager {
-  constructor() {
-    this.cache = new Map();
-  }
-
-  get(key) {
-    const cached = this.cache.get(key);
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-      return cached.data;
-    }
-    this.cache.delete(key);
-    return null;
-  }
-
-  set(key, data) {
-    this.cache.set(key, { data, timestamp: Date.now() });
-  }
-
-  clear() {
-    this.cache.clear();
-  }
-
-  delete(key) {
-    this.cache.delete(key);
-  }
-}
-
-const apiCache = new CacheManager();
-
-// ==================== CONSTANTS ====================
+// ============================================
+// CONSTANTS
+// ============================================
 const ALL_COLUMNS = [
   { id: "id", label: "ID" },
   { id: "picture", label: "Picture" },
@@ -99,11 +77,13 @@ const LISTING_TYPE_COLORS = {
 };
 
 const DEFAULT_COLUMNS = new Set([
-  "id", "picture", "property_name", "status", 
+  "id", "picture", "property_name", "status",
   "listing_type", "price", "beds", "location", "created_at"
 ]);
 
-// ==================== UTILITY FUNCTIONS ====================
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
 const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
   if (!isNaN(imagePath)) return `${API_BASE_URL}/api/v1/media/${imagePath}`;
@@ -139,7 +119,9 @@ const formatDate = (dateString) => {
   }
 };
 
-// ==================== TOAST HELPERS ====================
+// ============================================
+// TOAST HELPERS
+// ============================================
 const showSuccess = (msg) => toast.success(msg, {
   duration: 3000,
   position: "top-right",
@@ -154,7 +136,31 @@ const showError = (msg) => toast.error(msg, {
 
 const showLoading = (msg) => toast.loading(msg, { position: "top-right" });
 
-// ==================== MEMOIZED COMPONENTS ====================
+// ============================================
+// CUSTOM HOOKS
+// ============================================
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
+function useScrollTop(threshold = 500) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const handleScroll = () => setShow(window.scrollY > threshold);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [threshold]);
+  return show;
+}
+
+// ============================================
+// MEMOIZED COMPONENTS
+// ============================================
 const PropertyImage = memo(function PropertyImage({ src, galleryIds, alt }) {
   const [state, setState] = useState({ loaded: false, error: false, visible: false });
   const imgRef = useRef(null);
@@ -170,7 +176,6 @@ const PropertyImage = memo(function PropertyImage({ src, galleryIds, alt }) {
 
   useEffect(() => {
     if (!imgRef.current) return;
-    
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -180,7 +185,6 @@ const PropertyImage = memo(function PropertyImage({ src, galleryIds, alt }) {
       },
       { rootMargin: '100px' }
     );
-    
     observer.observe(imgRef.current);
     return () => observer.disconnect();
   }, []);
@@ -252,7 +256,6 @@ const ScrollToTopButton = memo(function ScrollToTopButton({ show }) {
     <button
       onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
       className="fixed bottom-6 right-6 z-50 w-10 h-10 bg-gray-900 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-gray-800 transition-all"
-      title="Scroll to top"
     >
       <ArrowUp className="w-5 h-5" />
     </button>
@@ -264,31 +267,30 @@ const PropertyRow = memo(function PropertyRow({
   visibleColumns,
   isSelected,
   onToggleSelect,
-  onEdit,
   onView,
   onDelete,
   deleteLoading,
 }) {
   const isVisible = (col) => visibleColumns.has(col);
-  
+
   return (
-    <tr className="border-b border-gray-200 hover:bg-gray-50">
+    <tr className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
       <td className="px-4 py-3">
         <input
           type="checkbox"
           checked={isSelected}
           onChange={() => onToggleSelect(property.id)}
-          className="w-4 h-4 rounded border-gray-300"
+          className="w-4 h-4 rounded border-gray-300 cursor-pointer"
         />
       </td>
       {isVisible("id") && (
         <td className="px-4 py-3">
-          <button
-            onClick={() => onEdit(property.id)}
+          <Link
+            href={`/admin/properties/edit/${property.id}`}
             className="text-blue-600 hover:underline text-sm font-medium font-mono"
           >
             #{property.id}
-          </button>
+          </Link>
         </td>
       )}
       {isVisible("picture") && (
@@ -304,13 +306,13 @@ const PropertyRow = memo(function PropertyRow({
       )}
       {isVisible("property_name") && (
         <td className="px-4 py-3">
-          <button
-            onClick={() => onEdit(property.id)}
+          <Link
+            href={`/admin/properties/edit/${property.id}`}
             className="text-left text-sm text-gray-800 font-medium hover:text-blue-600 block max-w-[200px] truncate"
             title={property.property_name}
           >
             {property.property_name || "Untitled Property"}
-          </button>
+          </Link>
           {property.property_slug && (
             <div className="text-xs text-gray-500 truncate max-w-[200px]">
               {property.property_slug}
@@ -381,25 +383,25 @@ const PropertyRow = memo(function PropertyRow({
         </td>
       )}
       <td className="px-4 py-3 text-sm">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
             onClick={() => onView(property.id)}
-            className="p-1.5 rounded hover:bg-gray-100 text-gray-600"
+            className="p-1.5 rounded hover:bg-gray-100 text-gray-600 transition-colors"
             title="View"
           >
             <ExternalLink className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => onEdit(property.id)}
-            className="p-1.5 rounded hover:bg-blue-50 text-blue-600"
+          <Link
+            href={`/admin/properties/edit/${property.id}`}
+            className="p-1.5 rounded hover:bg-blue-50 text-blue-600 transition-colors"
             title="Edit"
           >
             <Edit3 className="w-4 h-4" />
-          </button>
+          </Link>
           <button
             onClick={() => onDelete(property.id)}
             disabled={deleteLoading === property.id}
-            className="p-1.5 rounded hover:bg-red-50 text-red-600 disabled:opacity-50"
+            className="p-1.5 rounded hover:bg-red-50 text-red-600 disabled:opacity-50 transition-colors"
             title="Delete"
           >
             {deleteLoading === property.id ? (
@@ -416,7 +418,7 @@ const PropertyRow = memo(function PropertyRow({
 
 const TableHeader = memo(function TableHeader({ visibleColumns, allSelected, onToggleAll }) {
   const isVisible = (col) => visibleColumns.has(col);
-  
+
   return (
     <thead>
       <tr className="bg-gray-50 border-b border-gray-300">
@@ -425,60 +427,40 @@ const TableHeader = memo(function TableHeader({ visibleColumns, allSelected, onT
             type="checkbox"
             checked={allSelected}
             onChange={onToggleAll}
-            className="w-4 h-4 rounded border-gray-300"
+            className="w-4 h-4 rounded border-gray-300 cursor-pointer"
           />
         </th>
-        {isVisible("id") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">ID</th>}
-        {isVisible("picture") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Picture</th>}
-        {isVisible("property_name") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase min-w-[200px]">Property Name</th>}
-        {isVisible("status") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Status</th>}
-        {isVisible("listing_type") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Type</th>}
-        {isVisible("price") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Price</th>}
-        {isVisible("beds") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Beds</th>}
-        {isVisible("location") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Location</th>}
-        {isVisible("developer") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Developer</th>}
-        {isVisible("agent") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Agent</th>}
-        {isVisible("featured") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Featured</th>}
-        {isVisible("created_at") && <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Created</th>}
-        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Actions</th>
+        {isVisible("id") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ID</th>}
+        {isVisible("picture") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Picture</th>}
+        {isVisible("property_name") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase min-w-[200px]">Property Name</th>}
+        {isVisible("status") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>}
+        {isVisible("listing_type") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Type</th>}
+        {isVisible("price") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Price</th>}
+        {isVisible("beds") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Beds</th>}
+        {isVisible("location") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Location</th>}
+        {isVisible("developer") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Developer</th>}
+        {isVisible("agent") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Agent</th>}
+        {isVisible("featured") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Featured</th>}
+        {isVisible("created_at") && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Created</th>}
+        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>
       </tr>
     </thead>
   );
 });
 
-const FullPageLoader = memo(function FullPageLoader({ message }) {
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
-        <div className="relative w-16 h-16 mx-auto mb-4">
-          <div className="absolute inset-0 border-4 border-gray-200 rounded-full" />
-          <div className="absolute inset-0 border-4 border-amber-500 rounded-full border-t-transparent animate-spin" />
-        </div>
-        <p className="text-gray-600 font-medium">{message || "Loading..."}</p>
-      </div>
-    </div>
-  );
-});
-
-const DeleteModal = memo(function DeleteModal({ 
-  isOpen, 
-  target, 
-  selectedCount, 
-  loading, 
-  onClose, 
-  onConfirm 
-}) {
+const DeleteModal = memo(function DeleteModal({ isOpen, target, selectedCount, loading, onClose, onConfirm }) {
   if (!isOpen || !target) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl">
+      <div className="relative w-full max-w-md bg-white rounded-xl shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h3 className="text-lg font-semibold text-gray-800">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-500" />
             {target.type === "bulk" ? "Delete Properties" : "Delete Property"}
           </h3>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
             <X className="w-5 h-5 text-gray-500" />
           </button>
         </div>
@@ -492,14 +474,14 @@ const DeleteModal = memo(function DeleteModal({
             <button
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
+              className="px-4 py-2.5 text-sm font-semibold text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               onClick={onConfirm}
               disabled={loading}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
               Delete
@@ -511,37 +493,28 @@ const DeleteModal = memo(function DeleteModal({
   );
 });
 
-const ColumnSelectorModal = memo(function ColumnSelectorModal({ 
-  isOpen, 
-  columns, 
-  visibleColumns, 
-  onToggle, 
-  onClose 
-}) {
+const ColumnSelectorModal = memo(function ColumnSelectorModal({ isOpen, columns, visibleColumns, onToggle, onClose }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-lg shadow-xl border border-gray-300">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <h3 className="text-sm font-medium text-gray-800">Show / Hide Column in Listing</h3>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-xl shadow-2xl border">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="text-base font-bold text-gray-800">Show / Hide Columns</h3>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
             <X className="w-4 h-4 text-gray-500" />
           </button>
         </div>
-        <div className="p-4">
-          <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="p-5">
+          <div className="grid grid-cols-2 gap-3 mb-5">
             {columns.map((col) => (
-              <label
-                key={col.id}
-                className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900"
-              >
+              <label key={col.id} className="flex items-center gap-2.5 text-sm text-gray-700 cursor-pointer hover:text-gray-900 p-2 rounded-lg hover:bg-gray-50">
                 <input
                   type="checkbox"
                   checked={visibleColumns.has(col.id)}
                   onChange={() => onToggle(col.id)}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 cursor-pointer"
                 />
                 <span>{col.label}</span>
               </label>
@@ -549,13 +522,10 @@ const ColumnSelectorModal = memo(function ColumnSelectorModal({
           </div>
           <div className="flex justify-end">
             <button
-              onClick={() => {
-                onClose();
-                showSuccess("Columns updated successfully");
-              }}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+              onClick={() => { onClose(); showSuccess("Columns updated!"); }}
+              className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700"
             >
-              Save
+              Save Changes
             </button>
           </div>
         </div>
@@ -564,188 +534,34 @@ const ColumnSelectorModal = memo(function ColumnSelectorModal({
   );
 });
 
-// ==================== CUSTOM HOOKS ====================
-function useDebounce(value, delay) {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-
-  return debouncedValue;
-}
-
-function useScrollTop(threshold = 500) {
-  const [show, setShow] = useState(false);
-
-  useEffect(() => {
-    const handleScroll = () => setShow(window.scrollY > threshold);
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [threshold]);
-
-  return show;
-}
-
-// ==================== API HOOK ====================
-function useAPI() {
-  const abortControllerRef = useRef(null);
-
-  const request = useCallback(async (endpoint, options = {}) => {
-    const token = getAdminToken();
-    if (!token) {
-      window.location.href = "/admin/login";
-      throw new Error("Please login to continue");
-    }
-
-    // Cancel previous request if exists
-    if (options.cancelPrevious && abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    if (options.cancelPrevious) {
-      abortControllerRef.current = new AbortController();
-    }
-
-    try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
-        signal: options.cancelPrevious ? abortControllerRef.current.signal : options.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          ...options.headers,
-        },
-      });
-
-      if (response.status === 401) {
-        logoutAll();
-        window.location.href = "/admin/login";
-        throw new Error("Session expired");
-      }
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: "Network error" }));
-        throw new Error(error.message || `HTTP error! status: ${response.status}`);
-      }
-
-      return response.json();
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        throw error;
-      }
-      throw error;
-    }
-  }, []);
-
-  const cleanup = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-  }, []);
-
-  return { request, cleanup };
-}
-
-// ==================== AUTH HOOK ====================
-function useAuth() {
-  const [state, setState] = useState({
-    admin: null,
-    isAuthenticated: false,
-    loading: true,
-  });
-  const router = useRouter();
-
-  const checkAuth = useCallback(async () => {
-    try {
-      const sessionType = getCurrentSessionType();
-      if (sessionType !== "admin") {
-        throw new Error("Please login as admin");
-      }
-
-      const token = getAdminToken();
-      if (!token || !isAdminTokenValid()) {
-        throw new Error("Session expired");
-      }
-
-      // Verify token
-      const response = await fetch(`${API_BASE_URL}/api/v1/users/admin/verify-token`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok && response.status === 401) {
-        throw new Error("Invalid token");
-      }
-
-      // Decode token
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      if (payload.userType !== "admin") {
-        throw new Error("Invalid session type");
-      }
-
-      setState({
-        admin: {
-          id: payload.id,
-          name: payload.name,
-          email: payload.email,
-          role: payload.role || "admin",
-          userType: payload.userType,
-        },
-        isAuthenticated: true,
-        loading: false,
-      });
-    } catch (error) {
-      console.error("Auth error:", error);
-      logoutAll();
-      setState({ admin: null, isAuthenticated: false, loading: false });
-      router.replace("/admin/login");
-    }
-  }, [router]);
-
-  const logout = useCallback(async () => {
-    const toastId = showLoading("Logging out...");
-    try {
-      const token = getAdminToken();
-      await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
-      toast.dismiss(toastId);
-      showSuccess("Logged out successfully");
-    } catch {
-      toast.dismiss(toastId);
-    } finally {
-      logoutAll();
-      router.replace("/admin/login");
-    }
-  }, [router]);
-
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  return { ...state, logout };
-}
-
-// ==================== MAIN COMPONENT ====================
+// ============================================
+// MAIN COMPONENT
+// ============================================
 export default function PropertiesPage() {
   const router = useRouter();
-  const { admin, isAuthenticated, loading: authLoading, logout } = useAuth();
-  const { request, cleanup } = useAPI();
   const showScrollTop = useScrollTop();
 
-  // Refs
+  // ============================================
+  // REFS
+  // ============================================
   const loadMoreRef = useRef(null);
   const observerRef = useRef(null);
   const fetchIdRef = useRef(0);
+  const authChecked = useRef(false);
 
-  // State
+  // ============================================
+  // AUTH STATE
+  // ============================================
+  const [admin, setAdmin] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+
+  // ============================================
+  // DATA STATE
+  // ============================================
   const [properties, setProperties] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("all");
@@ -754,18 +570,87 @@ export default function PropertiesPage() {
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_COLUMNS);
-  const [showOverviewDropdown, setShowOverviewDropdown] = useState(false);
+  const [showColumnModal, setShowColumnModal] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(null);
   const [selectedProperties, setSelectedProperties] = useState(new Set());
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [logoutLoading, setLogoutLoading] = useState(false);
 
   const debouncedSearch = useDebounce(search, 300);
 
-  // ==================== FETCH PROPERTIES ====================
+  // ============================================
+  // AUTH CHECK - SAME PATTERN AS WORKING VERSION
+  // ============================================
+  useEffect(() => {
+    if (authChecked.current) return;
+    authChecked.current = true;
+
+    console.log("🔐 [PROPERTIES] Starting auth check...");
+
+    const token = getAdminToken();
+    console.log("🔐 [PROPERTIES] Token exists:", !!token);
+
+    if (!token) {
+      console.log("❌ [PROPERTIES] No token - redirecting");
+      window.location.replace("/admin/login");
+      return;
+    }
+
+    const isValid = isAdminTokenValid();
+    console.log("🔐 [PROPERTIES] Token valid:", isValid);
+
+    if (!isValid) {
+      console.log("❌ [PROPERTIES] Token expired - redirecting");
+      clearAdminTokens();
+      window.location.replace("/admin/login");
+      return;
+    }
+
+    let user = getAdminUser();
+    console.log("🔐 [PROPERTIES] Cached user:", user);
+
+    if (!user) {
+      const decoded = decodeToken(token);
+      console.log("🔐 [PROPERTIES] Decoded token:", decoded);
+      if (decoded) {
+        user = {
+          id: decoded.id,
+          name: decoded.name || "Admin",
+          email: decoded.email,
+          usertype: decoded.usertype,
+        };
+      }
+    }
+
+    if (!user) {
+      console.log("❌ [PROPERTIES] No user data - redirecting");
+      clearAdminTokens();
+      window.location.replace("/admin/login");
+      return;
+    }
+
+    console.log("✅ [PROPERTIES] Auth successful:", user.email);
+
+    setAdmin({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: "admin",
+      userType: user.usertype,
+      avatar: user.image_icon,
+    });
+    setIsAuthenticated(true);
+    setAuthLoading(false);
+  }, []);
+
+  // ============================================
+  // FETCH PROPERTIES
+  // ============================================
   const fetchProperties = useCallback(async (page = 1, append = false) => {
     if (!isAuthenticated) return;
+
+    const token = getAdminToken();
+    if (!token) return;
 
     const fetchId = ++fetchIdRef.current;
 
@@ -790,57 +675,58 @@ export default function PropertiesPage() {
 
       if (debouncedSearch.trim()) params.append("search", debouncedSearch.trim());
 
-      // Check cache for non-append requests
-      const cacheKey = `properties_${params.toString()}`;
-      if (!append) {
-        const cached = apiCache.get(cacheKey);
-        if (cached) {
-          setProperties(cached.properties);
-          setTotal(cached.total);
-          setHasMore(cached.hasMore);
-          setCurrentPage(page);
-          setLoading(false);
-          return;
-        }
+      console.log("📊 [PROPERTIES] Fetching:", params.toString());
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/properties?${params}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      console.log("📊 [PROPERTIES] Response status:", response.status);
+
+      if (response.status === 401) {
+        clearAdminTokens();
+        window.location.replace("/admin/login");
+        return;
       }
 
-      const data = await request(`/api/v1/properties?${params}`, { cancelPrevious: true });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      // Check if this is still the latest request
+      const data = await response.json();
+      console.log("📊 [PROPERTIES] Response:", data);
+
       if (fetchId !== fetchIdRef.current) return;
 
       if (data.success) {
-        // *** FIX: Added data.listings as fallback since API returns 'listings' ***
-        let propertiesData = data.listings || data.data || [];
-        propertiesData = propertiesData.sort((a, b) => b.id - a.id);
+        let list = data.listings || data.data || [];
+        list = list.sort((a, b) => b.id - a.id);
 
         const pagination = data.pagination;
-        const newTotal = pagination?.total || data.total || propertiesData.length;
+        const newTotal = pagination?.total || data.total || list.length;
         const totalPages = pagination?.totalPages || Math.ceil(newTotal / ITEMS_PER_LOAD);
-        const newHasMore = page < totalPages && propertiesData.length === ITEMS_PER_LOAD;
+        const newHasMore = page < totalPages && list.length === ITEMS_PER_LOAD;
 
         if (append) {
           setProperties(prev => {
             const existingIds = new Set(prev.map(p => p.id));
-            const newProperties = propertiesData.filter(p => !existingIds.has(p.id));
-            return [...prev, ...newProperties];
+            const newItems = list.filter(p => !existingIds.has(p.id));
+            return [...prev, ...newItems];
           });
         } else {
-          setProperties(propertiesData);
-          // Cache the result
-          apiCache.set(cacheKey, {
-            properties: propertiesData,
-            total: newTotal,
-            hasMore: newHasMore,
-          });
+          setProperties(list);
         }
 
         setTotal(newTotal);
         setCurrentPage(page);
         setHasMore(newHasMore);
+        
+        console.log("📊 [PROPERTIES] Loaded:", list.length, "items");
       }
     } catch (err) {
-      if (err.name !== "AbortError" && fetchId === fetchIdRef.current) {
+      if (fetchId === fetchIdRef.current) {
+        console.error("❌ [PROPERTIES] Error:", err);
         setError(err.message);
         if (!append) showError("Failed to load properties");
       }
@@ -850,42 +736,36 @@ export default function PropertiesPage() {
         setLoadingMore(false);
       }
     }
-  }, [isAuthenticated, activeTab, debouncedSearch, request]);
+  }, [isAuthenticated, activeTab, debouncedSearch]);
 
-  // Load more
   const loadMore = useCallback(() => {
     if (!loadingMore && hasMore && !loading) {
       fetchProperties(currentPage + 1, true);
     }
   }, [loadingMore, hasMore, loading, currentPage, fetchProperties]);
 
-  // ==================== EFFECTS ====================
+  // ============================================
+  // EFFECTS
+  // ============================================
+  
   // Intersection Observer for infinite scroll
   useEffect(() => {
     if (loading || !hasMore) return;
 
-    const options = {
-      root: null,
-      rootMargin: '200px',
-      threshold: 0.1,
-    };
-
-    observerRef.current = new IntersectionObserver((entries) => {
-      const [entry] = entries;
-      if (entry.isIntersecting && hasMore && !loadingMore && !loading) {
-        loadMore();
-      }
-    }, options);
+    observerRef.current = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && hasMore && !loadingMore && !loading) {
+          loadMore();
+        }
+      },
+      { rootMargin: '200px', threshold: 0.1 }
+    );
 
     if (loadMoreRef.current) {
       observerRef.current.observe(loadMoreRef.current);
     }
 
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
+    return () => observerRef.current?.disconnect();
   }, [hasMore, loadingMore, loading, loadMore]);
 
   // Fetch on filter change
@@ -897,17 +777,26 @@ export default function PropertiesPage() {
       setSelectedProperties(new Set());
       fetchProperties(1, false);
     }
-
-    return cleanup;
   }, [isAuthenticated, activeTab, debouncedSearch]);
 
-  // ==================== HANDLERS ====================
+  // ============================================
+  // HANDLERS
+  // ============================================
   const handleDelete = useCallback(async (id) => {
+    const token = getAdminToken();
+    if (!token) return;
+
     const toastId = showLoading("Deleting property...");
     try {
       setDeleteLoading(id);
-      await request(`/api/v1/properties/${id}`, { method: "DELETE" });
       
+      const response = await fetch(`${API_BASE_URL}/api/v1/properties/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) throw new Error("Delete failed");
+
       setProperties(prev => prev.filter(p => p.id !== id));
       setTotal(prev => prev - 1);
       setSelectedProperties(prev => {
@@ -915,57 +804,51 @@ export default function PropertiesPage() {
         next.delete(id);
         return next;
       });
-      
-      // Invalidate cache
-      apiCache.clear();
-      
+
       toast.dismiss(toastId);
-      showSuccess("Property deleted successfully!");
+      showSuccess("Property deleted!");
       setShowDeleteModal(false);
       setDeleteTarget(null);
     } catch (err) {
       toast.dismiss(toastId);
-      showError(err.message || "Error deleting property");
+      showError(err.message || "Delete failed");
     } finally {
       setDeleteLoading(null);
     }
-  }, [request]);
+  }, []);
 
   const handleBulkDelete = useCallback(async () => {
     if (selectedProperties.size === 0) return;
+
+    const token = getAdminToken();
+    if (!token) return;
 
     const toastId = showLoading(`Deleting ${selectedProperties.size} properties...`);
     try {
       const ids = Array.from(selectedProperties);
 
-      try {
-        await request("/api/v1/properties/bulk", {
-          method: "DELETE",
-          body: JSON.stringify({ property_ids: ids }),
-        });
-      } catch {
-        // Fallback to sequential delete
-        await Promise.all(ids.map(id => 
-          request(`/api/v1/properties/${id}`, { method: "DELETE" }).catch(() => {})
-        ));
-      }
+      await Promise.all(
+        ids.map(id =>
+          fetch(`${API_BASE_URL}/api/v1/properties/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {})
+        )
+      );
 
       setProperties(prev => prev.filter(p => !selectedProperties.has(p.id)));
       setTotal(prev => Math.max(0, prev - ids.length));
       setSelectedProperties(new Set());
-      
-      // Invalidate cache
-      apiCache.clear();
 
       toast.dismiss(toastId);
-      showSuccess(`${ids.length} properties deleted successfully!`);
+      showSuccess(`${ids.length} properties deleted!`);
       setShowDeleteModal(false);
       setDeleteTarget(null);
     } catch (err) {
       toast.dismiss(toastId);
-      showError("Error deleting properties");
+      showError("Bulk delete failed");
     }
-  }, [selectedProperties, request]);
+  }, [selectedProperties]);
 
   const handleDeleteConfirm = useCallback(() => {
     if (!deleteTarget) return;
@@ -976,20 +859,11 @@ export default function PropertiesPage() {
     }
   }, [deleteTarget, handleBulkDelete, handleDelete]);
 
-  const handleEdit = useCallback((id) => {
-    router.push(`/admin/properties/edit/${id}`);
-  }, [router]);
-
-  const handleAdd = useCallback(() => {
-    router.push("/admin/properties/add");
-  }, [router]);
-
   const handleView = useCallback((id) => {
     window.open(`/properties/${id}`, "_blank");
   }, []);
 
   const handleRefresh = useCallback(() => {
-    apiCache.clear();
     setProperties([]);
     setCurrentPage(1);
     setHasMore(true);
@@ -1030,12 +904,34 @@ export default function PropertiesPage() {
   }, [properties]);
 
   const handleLogout = useCallback(async () => {
-    setLogoutLoading(true);
-    await logout();
-    setLogoutLoading(false);
-  }, [logout]);
+    if (logoutLoading) return;
 
-  // Column & Selection helpers
+    setLogoutLoading(true);
+    const toastId = showLoading("Signing out...");
+
+    try {
+      const token = getAdminToken();
+      if (token) {
+        await fetch(`${API_BASE_URL}/api/v1/users/logout`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+
+      clearAdminTokens();
+      toast.dismiss(toastId);
+      showSuccess("Logged out!");
+
+      setTimeout(() => {
+        window.location.replace("/admin/login");
+      }, 500);
+    } catch {
+      toast.dismiss(toastId);
+      showError("Logout failed");
+      setLogoutLoading(false);
+    }
+  }, [logoutLoading]);
+
   const toggleColumn = useCallback((columnId) => {
     setVisibleColumns(prev => {
       const next = new Set(prev);
@@ -1047,9 +943,7 @@ export default function PropertiesPage() {
 
   const toggleSelectAll = useCallback(() => {
     setSelectedProperties(prev => {
-      if (prev.size === properties.length) {
-        return new Set();
-      }
+      if (prev.size === properties.length) return new Set();
       return new Set(properties.map(p => p.id));
     });
   }, [properties]);
@@ -1068,32 +962,42 @@ export default function PropertiesPage() {
     setShowDeleteModal(true);
   }, []);
 
-  // ==================== RENDER ====================
+  // ============================================
+  // RENDER - AUTH LOADING
+  // ============================================
   if (authLoading) {
     return (
-      <>
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <Toaster position="top-right" />
-        <FullPageLoader message="Verifying authentication..." />
-      </>
+        <div className="text-center">
+          <Loader2 className="w-10 h-10 animate-spin text-blue-500 mx-auto mb-4" />
+          <p className="text-gray-600 font-medium">Checking authentication...</p>
+        </div>
+      </div>
     );
   }
 
+  // ============================================
+  // RENDER - NOT AUTHENTICATED
+  // ============================================
   if (!isAuthenticated || !admin) {
-    return null;
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <Toaster position="top-right" />
+        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+      </div>
+    );
   }
 
+  // ============================================
+  // RENDER - MAIN PAGE
+  // ============================================
   const allSelected = selectedProperties.size === properties.length && properties.length > 0;
 
   return (
     <>
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: { background: '#363636', color: '#fff' },
-        }}
-      />
-
+      <Toaster position="top-right" />
+      
       <AdminNavbar
         admin={admin}
         isAuthenticated={isAuthenticated}
@@ -1108,34 +1012,34 @@ export default function PropertiesPage() {
         target={deleteTarget}
         selectedCount={selectedProperties.size}
         loading={deleteLoading}
-        onClose={() => {
-          setShowDeleteModal(false);
-          setDeleteTarget(null);
-        }}
+        onClose={() => { setShowDeleteModal(false); setDeleteTarget(null); }}
         onConfirm={handleDeleteConfirm}
       />
 
       <ColumnSelectorModal
-        isOpen={showOverviewDropdown}
+        isOpen={showColumnModal}
         columns={ALL_COLUMNS}
         visibleColumns={visibleColumns}
         onToggle={toggleColumn}
-        onClose={() => setShowOverviewDropdown(false)}
+        onClose={() => setShowColumnModal(false)}
       />
 
       <div className="min-h-screen bg-gray-100 pt-4">
-        <div className="p-3">
-          {/* Tabs */}
-          <div className="mb-3">
-            <div className="inline-flex bg-white border border-gray-300 rounded overflow-hidden flex-wrap">
+        <div className="p-4">
+          {/* Status Tabs */}
+          <div className="mb-4">
+            <div className="inline-flex bg-white border border-gray-300 rounded-lg overflow-hidden shadow-sm">
               {STATUS_TABS.map((tab, index) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  className={`px-5 py-2.5 text-sm font-semibold transition-all ${
                     index !== 0 ? "border-l border-gray-300" : ""
-                  } ${activeTab === tab.key ? "text-white" : "text-gray-600 hover:bg-gray-50"}`}
-                  style={activeTab === tab.key ? { backgroundColor: "rgb(39,113,183)" } : {}}
+                  } ${
+                    activeTab === tab.key
+                      ? "text-white bg-blue-600"
+                      : "text-gray-600 hover:bg-gray-50"
+                  }`}
                 >
                   {tab.label}
                 </button>
@@ -1145,8 +1049,8 @@ export default function PropertiesPage() {
 
           {/* Bulk Actions */}
           {selectedProperties.size > 0 && (
-            <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded flex items-center justify-between">
-              <p className="text-sm text-blue-900">
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+              <p className="text-sm font-medium text-blue-900">
                 <strong>{selectedProperties.size}</strong> {selectedProperties.size > 1 ? "properties" : "property"} selected
               </p>
               <div className="flex items-center gap-3">
@@ -1154,11 +1058,11 @@ export default function PropertiesPage() {
                   onClick={() => setSelectedProperties(new Set())}
                   className="text-sm text-blue-600 hover:text-blue-800 font-medium"
                 >
-                  Clear selection
+                  Clear
                 </button>
                 <button
                   onClick={() => openDeleteModal("bulk")}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700"
                 >
                   <Trash2 className="w-4 h-4" />
                   Delete Selected
@@ -1168,21 +1072,20 @@ export default function PropertiesPage() {
           )}
 
           {/* Controls */}
-          <div className="bg-white border border-gray-300 rounded-t p-3">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleAdd}
-                  style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded hover:opacity-90"
+          <div className="bg-white border border-gray-300 rounded-t-lg p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/admin/properties/add"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700"
                 >
                   <Plus className="w-4 h-4" />
                   New Property
-                </button>
+                </Link>
                 <button
                   onClick={handleExport}
                   disabled={properties.length === 0}
-                  className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
                 >
                   <Download className="w-4 h-4" />
                   Export
@@ -1190,8 +1093,7 @@ export default function PropertiesPage() {
                 <button
                   onClick={handleRefresh}
                   disabled={loading || loadingMore}
-                  className="p-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-                  title="Refresh"
+                  className="p-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
                 >
                   <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
                 </button>
@@ -1204,17 +1106,15 @@ export default function PropertiesPage() {
                     placeholder="Search properties..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="pl-4 pr-10 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-64"
+                    className="pl-4 pr-12 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-72"
                   />
-                  <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-gray-800 hover:bg-gray-700 rounded">
+                  <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-gray-800 hover:bg-gray-700 rounded">
                     <Search className="w-4 h-4 text-white" />
                   </button>
                 </div>
-
                 <button
-                  onClick={() => setShowOverviewDropdown(true)}
-                  style={{ backgroundColor: "rgb(39,113,183)", color: "#fff" }}
-                  className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-sm font-medium rounded hover:opacity-90"
+                  onClick={() => setShowColumnModal(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
                 >
                   Overview
                   <ChevronDown className="w-4 h-4" />
@@ -1237,15 +1137,11 @@ export default function PropertiesPage() {
           </div>
 
           {/* Table */}
-          <div className="border border-gray-300 border-t-0" style={{ backgroundColor: "rgb(236,237,238)" }}>
+          <div className="border border-gray-300 border-t-0 bg-white">
             {loading && properties.length === 0 ? (
               <div className="overflow-x-auto">
-                <table className="w-full" style={{ backgroundColor: "rgb(236,237,238)" }}>
-                  <TableHeader 
-                    visibleColumns={visibleColumns} 
-                    allSelected={false} 
-                    onToggleAll={() => {}} 
-                  />
+                <table className="w-full">
+                  <TableHeader visibleColumns={visibleColumns} allSelected={false} onToggleAll={() => {}} />
                   <tbody>
                     {Array.from({ length: 15 }, (_, i) => (
                       <LoadingSkeleton key={i} columns={visibleColumns} />
@@ -1254,14 +1150,24 @@ export default function PropertiesPage() {
                 </table>
               </div>
             ) : properties.length === 0 ? (
-              <div className="text-center py-12">
-                <Home className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-600">No properties found</p>
-                {search && <p className="text-sm text-gray-500 mt-1">Try a different search term</p>}
+              <div className="text-center py-16">
+                <Home className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-700 mb-2">No properties found</h3>
+                <p className="text-gray-500 mb-4">
+                  {search ? `No results for "${search}"` : "Start by adding your first property"}
+                </p>
+                {search && (
+                  <button
+                    onClick={() => setSearch("")}
+                    className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                  >
+                    Clear search
+                  </button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full" style={{ backgroundColor: "rgb(236,237,238)" }}>
+                <table className="w-full">
                   <TableHeader
                     visibleColumns={visibleColumns}
                     allSelected={allSelected}
@@ -1275,16 +1181,13 @@ export default function PropertiesPage() {
                         visibleColumns={visibleColumns}
                         isSelected={selectedProperties.has(property.id)}
                         onToggleSelect={toggleSelect}
-                        onEdit={handleEdit}
                         onView={handleView}
                         onDelete={(id) => openDeleteModal("single", id)}
                         deleteLoading={deleteLoading}
                       />
                     ))}
-
-                    {/* Loading More Skeleton */}
                     {loadingMore && Array.from({ length: 10 }, (_, i) => (
-                      <LoadingSkeleton key={`loading-more-${i}`} columns={visibleColumns} />
+                      <LoadingSkeleton key={`more-${i}`} columns={visibleColumns} />
                     ))}
                   </tbody>
                 </table>
@@ -1292,10 +1195,10 @@ export default function PropertiesPage() {
             )}
           </div>
 
-          {/* Infinite Scroll Trigger */}
+          {/* Load More Trigger */}
           <div
             ref={loadMoreRef}
-            className="flex items-center justify-center bg-white border border-gray-300 border-t-0 px-4 py-4 rounded-b"
+            className="flex items-center justify-center bg-white border border-gray-300 border-t-0 px-4 py-5 rounded-b-lg"
           >
             {loading && properties.length === 0 ? (
               <div className="flex items-center gap-2 text-gray-600">
@@ -1305,15 +1208,15 @@ export default function PropertiesPage() {
             ) : loadingMore ? (
               <div className="flex items-center gap-2 text-gray-600">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Loading more properties...
+                Loading more...
               </div>
             ) : hasMore ? (
               <button
                 onClick={loadMore}
-                className="flex items-center gap-2 text-blue-600 hover:text-blue-700 cursor-pointer text-sm font-medium"
+                className="flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium"
               >
                 <ChevronDown className="w-4 h-4" />
-                Load more properties (Scroll or click)
+                Load more (scroll or click)
               </button>
             ) : properties.length > 0 ? (
               <div className="text-sm text-gray-500">
@@ -1325,4 +1228,4 @@ export default function PropertiesPage() {
       </div>
     </>
   );
-}
+} 
