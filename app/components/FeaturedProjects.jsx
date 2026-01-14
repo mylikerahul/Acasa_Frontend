@@ -13,33 +13,33 @@ import {
   Loader2,
   Building2,
   Calendar,
-  ArrowUpRight,
   Sparkles,
   Navigation,
   X,
+  Eye,
+  RotateCcw,
 } from "lucide-react";
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CONSTANTS & CONFIGURATION
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════════
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const VISIBLE_CARDS = 3;
 const SKELETON_COUNT = 3;
 const NEARBY_RADIUS_KM = 20;
 
-// Fallback/Placeholder images for when project image fails to load
 const FALLBACK_IMAGES = [
-  "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&h=600&fit=crop&q=80", // Modern apartment building
-  "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&h=600&fit=crop&q=80", // Glass skyscraper
-  "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800&h=600&fit=crop&q=80", // Luxury apartments
-  "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800&h=600&fit=crop&q=80", // Modern villa
-  "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800&h=600&fit=crop&q=80", // Luxury home
-  "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=800&h=600&fit=crop&q=80", // Modern house
+  "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&h=600&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&h=600&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800&h=600&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800&h=600&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800&h=600&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=800&h=600&fit=crop&q=80",
 ];
 
-// Default fallback if all else fails
-const DEFAULT_FALLBACK = "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&h=600&fit=crop&q=80";
+const DEFAULT_FALLBACK =
+  "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&h=600&fit=crop&q=80";
 
 const API_CONFIG = {
   params: { status: 1, limit: 20 },
@@ -47,9 +47,9 @@ const API_CONFIG = {
   timeout: 10000,
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// UTILITY FUNCTIONS
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════════════
 
 const utils = {
   formatPrice: (value) => {
@@ -92,11 +92,10 @@ const utils = {
     return `${API_URL}/uploads/projects/${cleanPath}`;
   },
 
-  // Get a consistent fallback image based on project ID
   getFallbackImage: (projectId) => {
-    if (!projectId) return DEFAULT_FALLBACK;
+    if (!projectId && projectId !== 0) return DEFAULT_FALLBACK;
     const index = projectId % FALLBACK_IMAGES.length;
-    return FALLBACK_IMAGES[index];
+    return FALLBACK_IMAGES[index] || DEFAULT_FALLBACK;
   },
 
   formatBedrooms: (from, to) => {
@@ -108,18 +107,15 @@ const utils = {
 
   calculateDistance: (lat1, lon1, lat2, lon2) => {
     if (!lat1 || !lon1 || !lat2 || !lon2) return null;
-
     const R = 6371;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
-
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos((lat1 * Math.PI) / 180) *
         Math.cos((lat2 * Math.PI) / 180) *
         Math.sin(dLon / 2) *
         Math.sin(dLon / 2);
-
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   },
@@ -134,7 +130,7 @@ const utils = {
   transformProject: (project) => ({
     id: project.id,
     title: project.ProjectName?.trim() || "Untitled Project",
-    slug: project.id.toString(),
+    slug: project.id?.toString() || utils.generateSlug(project.ProjectName),
     location: project.location || project.community || project.city || "",
     latitude: Number(project.latitude) || null,
     longitude: Number(project.longitude) || null,
@@ -151,9 +147,9 @@ const utils = {
   }),
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CUSTOM HOOKS
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// HOOKS
+// ═══════════════════════════════════════════════════════════════════
 
 const useProjects = () => {
   const [state, setState] = useState({
@@ -166,35 +162,19 @@ const useProjects = () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      console.log("🔍 Fetching projects from:", `${API_URL}/api/v1/projects`);
-      const { data } = await axios.get(`${API_URL}/api/v1/projects`, API_CONFIG);
-      console.log("✅ API Response received:", {
-        success: data.success,
-        count: data.count,
-        listingsLength: data.listings?.length,
-        hasDataArray: Array.isArray(data.data),
-        keys: Object.keys(data)
-      });
+      const { data } = await axios.get(
+        `${API_URL}/api/v1/projects`,
+        API_CONFIG
+      );
 
       if (!data.success || !Array.isArray(data.listings)) {
-        console.error("❌ Invalid API response structure:", data);
         throw new Error("Invalid API response structure");
       }
 
-      const activeListings = data.listings.filter(p => p.status === 1);
-      console.log(`📊 Filtered ${activeListings.length} active projects from ${data.listings.length} total`);
-
+      const activeListings = data.listings.filter((p) => p.status === 1);
       const projects = activeListings.map(utils.transformProject);
-      
-      console.log(`📋 Transformed ${projects.length} projects`);
       setState({ projects, loading: false, error: null });
     } catch (err) {
-      console.error("❌ Projects fetch error:", {
-        message: err.message,
-        response: err.response?.data,
-        status: err.response?.status
-      });
-      
       const message = axios.isAxiosError(err)
         ? err.response?.data?.message || err.message
         : "Failed to load projects";
@@ -223,20 +203,20 @@ const useCarousel = (totalItems, visibleCount = VISIBLE_CARDS) => {
   const canGoNext = currentIndex < maxIndex;
   const showNavigation = totalItems > visibleCount;
 
-  const goToPrev = useCallback(() => {
-    setCurrentIndex((prev) => Math.max(0, prev - 1));
-  }, []);
+  const goToPrev = useCallback(
+    () => setCurrentIndex((prev) => Math.max(0, prev - 1)),
+    []
+  );
 
-  const goToNext = useCallback(() => {
-    setCurrentIndex((prev) => Math.min(maxIndex, prev + 1));
-  }, [maxIndex]);
+  const goToNext = useCallback(
+    () => setCurrentIndex((prev) => Math.min(maxIndex, prev + 1)),
+    [maxIndex]
+  );
 
   const reset = useCallback(() => setCurrentIndex(0), []);
 
   useEffect(() => {
-    if (currentIndex > maxIndex) {
-      setCurrentIndex(0);
-    }
+    if (currentIndex > maxIndex) setCurrentIndex(0);
   }, [maxIndex, currentIndex]);
 
   return {
@@ -294,31 +274,31 @@ const useImageLoader = () => {
     setUsingFallback((prev) => new Set(prev).add(projectId));
   }, []);
 
-  const isUsingFallback = useCallback((id) => usingFallback.has(id), [usingFallback]);
+  const isUsingFallback = useCallback(
+    (id) => usingFallback.has(id),
+    [usingFallback]
+  );
 
   return { handleError, hasError, markUsingFallback, isUsingFallback };
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUB-COMPONENTS (BLACK & WHITE - NO ANIMATIONS)
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// UI SUB‑COMPONENTS
+// ═══════════════════════════════════════════════════════════════════
 
 const SkeletonCard = () => (
-  <div className="bg-white rounded-2xl overflow-hidden shadow-lg border border-gray-200">
-    <div className="aspect-[4/3] bg-gray-100" />
-    <div className="p-6 space-y-3">
-      <div className="h-3 bg-gray-200 rounded w-1/4" />
-      <div className="h-5 bg-gray-200 rounded w-3/4" />
-      <div className="h-4 bg-gray-200 rounded w-1/2" />
-      <div className="pt-2">
-        <div className="h-6 bg-gray-200 rounded w-2/3" />
-      </div>
+  <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200">
+    <div className="h-56 bg-gray-100" />
+    <div className="p-4 space-y-3">
+      <div className="h-4 bg-gray-200 rounded w-1/3" />
+      <div className="h-4 bg-gray-200 rounded w-1/4" />
+      <div className="h-3 bg-gray-200 rounded w-1/2" />
     </div>
   </div>
 );
 
 const LoadingState = () => (
-  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-7">
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     {Array.from({ length: SKELETON_COUNT }, (_, i) => (
       <SkeletonCard key={i} />
     ))}
@@ -327,8 +307,8 @@ const LoadingState = () => (
 
 const EmptyState = ({ hasNearby, onClearNearby }) => (
   <div className="text-center py-16">
-    <Building2 size={48} className="mx-auto text-gray-400 mb-4" />
-    <h3 className="text-xl font-medium text-gray-700 mb-2">
+    <Building2 size={40} className="mx-auto text-gray-400 mb-4" />
+    <h3 className="text-lg font-normal text-gray-700 mb-2">
       {hasNearby ? "No Nearby Projects Found" : "No Projects Available"}
     </h3>
     <p className="text-gray-500 mb-4">
@@ -339,8 +319,8 @@ const EmptyState = ({ hasNearby, onClearNearby }) => (
     {hasNearby && (
       <button
         onClick={onClearNearby}
-        className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium
-          text-white bg-black rounded-full"
+        className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-normal
+          text-gray-800 bg-white border border-gray-300 rounded-full hover:bg-gray-50"
       >
         <X size={16} />
         Clear Nearby Filter
@@ -353,36 +333,58 @@ const NearMeButton = ({ isActive, isLoading, onClick }) => (
   <button
     onClick={onClick}
     disabled={isLoading}
-    className={`flex items-center gap-2 px-4 py-2.5 border-2 rounded-xl text-sm font-medium
+    className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center
+      text-gray-500
       ${
         isActive
-          ? "border-black bg-black text-white"
-          : "border-gray-300 bg-white text-gray-800 hover:border-black"
+          ? "bg-black text-white border-black"
+          : "hover:border-gray-500 hover:text-gray-700"
       }
       ${isLoading ? "opacity-60 cursor-wait" : ""}`}
+    aria-label="Show projects near me"
   >
     {isLoading ? (
-      <Loader2 size={16} />
+      <Loader2 size={16} className="animate-spin" />
     ) : (
       <Navigation size={16} />
     )}
-    {isLoading ? "Detecting..." : isActive ? "Near Me ✓" : "Near Me"}
   </button>
 );
 
 const DistanceBadge = ({ distance }) => {
   if (distance === null || distance === undefined) return null;
-
   return (
-    <div className="absolute top-4 left-4 z-10 flex items-center gap-1 
-      bg-white px-2.5 py-1 rounded-full shadow-md border border-gray-200">
-      <Navigation size={12} className="text-black" />
-      <span className="text-xs font-semibold text-black">
+    <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded-full shadow-sm border border-gray-200">
+      <Navigation size={11} className="text-gray-700" />
+      <span className="text-[10px] font-normal text-gray-800">
         {utils.formatDistance(distance)}
       </span>
     </div>
   );
 };
+
+const NearbyBanner = ({ count, radius, onClear }) => (
+  <div className="mb-6 p-4 bg-white border border-gray-200 rounded-xl flex items-center justify-between">
+    <div className="flex items-center gap-3">
+      <div className="w-9 h-9 bg-gray-900 rounded-full flex items-center justify-center">
+        <MapPin size={18} className="text-white" />
+      </div>
+      <div>
+        <p className="text-sm font-normal text-gray-900">
+          Showing {count} nearby projects within {radius}km
+        </p>
+        <p className="text-xs text-gray-500">Sorted by nearest first</p>
+      </div>
+    </div>
+    <button
+      onClick={onClear}
+      className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 rounded-lg border border-gray-200"
+    >
+      <X size={13} />
+      Clear
+    </button>
+  </div>
+);
 
 const SectionHeader = ({
   showNav,
@@ -394,14 +396,13 @@ const SectionHeader = ({
   nearbyLoading,
   onNearbyClick,
 }) => (
-  <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-12">
-    <div>
-      <h2 className="text-3xl md:text-4xl font-light text-black uppercase tracking-wide">
-        Featured Projects
-      </h2>
-      <p className="text-gray-600 mt-2">Discover our premium developments</p>
-      <div className="mt-4 h-0.5 w-20 bg-black" />
-    </div>
+  <div className="flex items-center justify-between mb-8">
+    <h2
+      id="featured-projects-title"
+      className="text-xs md:text-sm font-normal tracking-[0.4em] text-[#111827] uppercase"
+    >
+      Featured Projects
+    </h2>
 
     <div className="flex items-center gap-3">
       <NearMeButton
@@ -409,110 +410,97 @@ const SectionHeader = ({
         isLoading={nearbyLoading}
         onClick={onNearbyClick}
       />
-
       {showNav && (
-        <div className="flex items-center gap-2">
-          <NavButton direction="prev" disabled={!canPrev} onClick={onPrev} />
-          <NavButton direction="next" disabled={!canNext} onClick={onNext} />
-        </div>
+        <>
+          <button
+            onClick={onPrev}
+            disabled={!canPrev}
+            aria-label="Previous projects"
+            className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm
+              ${
+                !canPrev
+                  ? "opacity-40 cursor-not-allowed"
+                  : "hover:border-gray-500 hover:text-gray-700"
+              }`}
+          >
+            <ChevronLeft size={18} className="text-gray-700" />
+          </button>
+          <button
+            onClick={onNext}
+            disabled={!canNext}
+            aria-label="Next projects"
+            className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm
+              ${
+                !canNext
+                  ? "opacity-40 cursor-not-allowed"
+                  : "hover:border-gray-500 hover:text-gray-700"
+              }`}
+          >
+            <ChevronRight size={18} className="text-gray-700" />
+          </button>
+        </>
       )}
     </div>
   </div>
 );
 
-const NavButton = ({ direction, disabled, onClick }) => (
-  <button
-    onClick={onClick}
-    disabled={disabled}
-    aria-label={direction === "prev" ? "Previous projects" : "Next projects"}
-    className={`p-3 border-2 border-gray-300 rounded-xl bg-white
-      ${disabled ? "opacity-40 cursor-not-allowed" : "hover:border-black"}`}
-  >
-    {direction === "prev" ? (
-      <ChevronLeft size={20} className="text-black" />
-    ) : (
-      <ChevronRight size={20} className="text-black" />
-    )}
-  </button>
-);
-
 const FeaturedBadge = ({ hasDistance }) => (
   <div
-    className={`absolute ${hasDistance ? "top-12" : "top-4"} left-4 z-10 
-      flex items-center gap-1.5 bg-black text-white 
-      px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg`}
+    className={`absolute ${
+      hasDistance ? "top-9" : "top-3"
+    } left-3 z-10 flex items-center gap-1.5 
+      bg-black text-white px-2.5 py-1 rounded-full text-[10px] font-normal shadow-sm`}
   >
-    <Sparkles size={12} />
+    <Sparkles size={11} />
     Featured
   </div>
 );
 
-const HandoverBadge = ({ date }) => (
-  <div className="absolute bottom-4 left-4 z-10 flex items-center gap-1.5 
-    bg-white px-3 py-1.5 rounded-lg shadow-md border border-gray-200">
-    <Calendar size={14} className="text-gray-600" />
-    <span className="text-sm font-medium text-black">{date}</span>
-  </div>
-);
+const HandoverBadge = ({ date }) => {
+  if (!date) return null;
+  return (
+    <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 bg-white/90 px-2.5 py-1 rounded-lg shadow-sm border border-gray-200">
+      <Calendar size={12} className="text-gray-600" />
+      <span className="text-[11px] font-normal text-gray-800">{date}</span>
+    </div>
+  );
+};
 
-const FavoriteButton = ({ isLiked, isSaving, onClick }) => (
-  <button
-    onClick={onClick}
-    disabled={isSaving}
-    aria-label={isLiked ? "Remove from favorites" : "Add to favorites"}
-    className={`absolute top-4 right-4 z-10 w-10 h-10 rounded-full 
-      flex items-center justify-center shadow-lg border border-gray-200
-      ${isLiked ? "bg-black" : "bg-white"}
-      ${isSaving ? "cursor-wait" : ""}`}
-  >
-    {isSaving ? (
-      <Loader2 size={18} className="text-gray-500" />
-    ) : (
-      <Heart
-        size={18}
-        className={isLiked ? "fill-white text-white" : "text-black"}
-      />
-    )}
-  </button>
-);
-
-// Updated ProjectImage component with fallback support
-const ProjectImage = ({ project, imageUrl, hasError, onError, onFallbackLoad }) => {
+const ProjectImage = ({ project, imageUrl, onError, onFallbackLoad }) => {
   const [currentSrc, setCurrentSrc] = useState(imageUrl);
   const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
 
-  // Reset state when imageUrl changes
   useEffect(() => {
     setCurrentSrc(imageUrl);
     setIsUsingFallback(false);
+    setLoaded(false);
     setFallbackError(false);
   }, [imageUrl]);
 
   const handleImageError = () => {
     if (!isUsingFallback) {
-      // First error - switch to fallback
       const fallbackUrl = utils.getFallbackImage(project.id);
-      console.log(`🖼️ Image failed for project ${project.id}, using fallback:`, fallbackUrl);
       setCurrentSrc(fallbackUrl);
       setIsUsingFallback(true);
+      setLoaded(false);
       onError(project.id);
       if (onFallbackLoad) onFallbackLoad(project.id);
     } else {
-      // Fallback also failed
-      console.log(`❌ Fallback image also failed for project ${project.id}`);
       setFallbackError(true);
     }
   };
 
-  // Show placeholder if no image URL or both original and fallback failed
-  if ((!imageUrl && !isUsingFallback) || fallbackError) {
+  if (fallbackError) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-        <div className="w-20 h-20 bg-gray-300 rounded-full flex items-center justify-center mb-3">
-          <Building2 size={36} className="text-gray-500" />
+        <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center mb-3">
+          <Building2 size={30} className="text-gray-500" />
         </div>
-        <span className="text-gray-500 text-sm font-medium">Property Image</span>
+        <span className="text-gray-500 text-sm font-normal">
+          Project Image
+        </span>
         <span className="text-gray-400 text-xs mt-1">Coming Soon</span>
       </div>
     );
@@ -520,19 +508,28 @@ const ProjectImage = ({ project, imageUrl, hasError, onError, onFallbackLoad }) 
 
   return (
     <div className="relative w-full h-full">
+      {!loaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+          <Loader2 size={26} className="text-gray-400 animate-spin" />
+        </div>
+      )}
+
       <img
         src={currentSrc || utils.getFallbackImage(project.id)}
         alt={project.title}
-        className="w-full h-full object-cover"
+        className={`w-full h-full object-cover transition-opacity duration-300 ${
+          loaded ? "opacity-100" : "opacity-0"
+        }`}
+        onLoad={() => setLoaded(true)}
         onError={handleImageError}
         loading="lazy"
         decoding="async"
       />
-      {/* Optional: Show a subtle indicator that this is a placeholder image */}
-      {isUsingFallback && (
-        <div className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-          <ImageOff size={10} className="inline mr-1" />
-          Sample Image
+
+      {isUsingFallback && loaded && (
+        <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded flex items-center gap-1">
+          <ImageOff size={10} />
+          <span>Sample</span>
         </div>
       )}
     </div>
@@ -542,17 +539,19 @@ const ProjectImage = ({ project, imageUrl, hasError, onError, onFallbackLoad }) 
 const ProjectCard = ({
   project,
   imageUrl,
-  hasError,
   isLiked,
   isSaving,
-  onImageError,
   onFavoriteClick,
   onClick,
   showDistance = false,
+  onImageError,
   onFallbackLoad,
 }) => {
-  const bedroomText = utils.formatBedrooms(project.bedroomsFrom, project.bedroomsTo);
   const hasDistanceBadge = showDistance && project.distance !== null;
+  const bedroomText = utils.formatBedrooms(
+    project.bedroomsFrom,
+    project.bedroomsTo
+  );
 
   const handleFavoriteClick = (e) => {
     e.stopPropagation();
@@ -562,141 +561,134 @@ const ProjectCard = ({
   return (
     <article
       onClick={() => onClick(project)}
-      className="group bg-white rounded-2xl overflow-hidden shadow-md border border-gray-200 
-        cursor-pointer hover:shadow-xl"
+      className="group bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200 
+        cursor-pointer hover:shadow-md transition-shadow duration-200 flex flex-col"
       role="button"
       tabIndex={0}
       onKeyDown={(e) => e.key === "Enter" && onClick(project)}
     >
-      {/* Image Section */}
-      <div className="relative aspect-[4/3] bg-gray-100 overflow-hidden">
+      <div className="relative h-56 bg-gray-100 overflow-hidden">
         {hasDistanceBadge && <DistanceBadge distance={project.distance} />}
         {project.featured && <FeaturedBadge hasDistance={hasDistanceBadge} />}
 
         <ProjectImage
           project={project}
           imageUrl={imageUrl}
-          hasError={hasError}
           onError={onImageError}
           onFallbackLoad={onFallbackLoad}
         />
 
-        {project.handoverDate && <HandoverBadge date={project.handoverDate} />}
+        {/* Top-right buttons */}
+        <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
+          <button
+            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="View details"
+          >
+            <Eye size={15} className="text-gray-700" />
+          </button>
+          <button
+            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="More options"
+          >
+            <RotateCcw size={15} className="text-gray-700" />
+          </button>
+        </div>
 
-        <FavoriteButton
-          isLiked={isLiked}
-          isSaving={isSaving}
-          onClick={handleFavoriteClick}
-        />
+        {/* Fake image arrows */}
+        <button
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Previous image"
+        >
+          <ChevronLeft size={14} className="text-gray-700" />
+        </button>
+        <button
+          className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Next image"
+        >
+          <ChevronRight size={14} className="text-gray-700" />
+        </button>
+
+        {project.handoverDate && <HandoverBadge date={project.handoverDate} />}
       </div>
 
-      {/* Content Section */}
-      <div className="p-5">
-        {project.developerName && (
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-            <Building2 size={12} />
-            {project.developerName}
-          </p>
-        )}
-
-        <h3 className="text-lg font-semibold text-black mb-2 truncate">
-          {project.title}
-        </h3>
-
-        <div className="flex items-center text-gray-600 mb-4">
-          <MapPin size={14} className="mr-1.5 flex-shrink-0" />
-          <span className="text-sm truncate">
+      <div className="flex-1 flex flex-col justify-between px-5 pt-4 pb-4">
+        <div className="pr-2">
+          <h3 className="text-sm md:text-[15px] font-medium text-gray-900 line-clamp-2">
+            {project.title}
+          </h3>
+          <p className="mt-1 text-xs text-gray-500 flex items-center gap-1">
+            <MapPin size={12} />
             {project.location || "Location TBA"}
-          </span>
-          {showDistance && project.distance !== null && (
-            <span className="ml-2 text-xs text-black font-medium">
-              ({utils.formatDistance(project.distance)})
-            </span>
+          </p>
+          {bedroomText && (
+            <p className="mt-2 text-xs text-gray-600">
+              {bedroomText} Bedrooms
+            </p>
           )}
         </div>
 
-        {bedroomText && (
-          <div className="text-sm text-gray-600 mb-4 pb-4 border-b border-gray-200">
-            <span className="font-semibold text-black">{bedroomText}</span>{" "}
-            Bedrooms
-          </div>
-        )}
-
-        {/* Price & CTA */}
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">
-              Starting From
-            </p>
-            <p className="text-xl font-bold text-black">
+        <div className="mt-3 flex items-center justify-between">
+          <p className="text-xs text-gray-500">
+            Start Price -{" "}
+            <span className="font-normal text-gray-900">
               AED {utils.formatPrice(project.price)}
-            </p>
-          </div>
+            </span>
+          </p>
 
-          <div
-            className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center
-              group-hover:bg-black"
-            aria-hidden="true"
+          <button
+            onClick={handleFavoriteClick}
+            disabled={isSaving}
+            aria-label={
+              isLiked ? "Remove from favorites" : "Add to favorites"
+            }
+            className={`flex items-center justify-center
+              ${isSaving ? "cursor-wait opacity-60" : ""}`}
           >
-            <ArrowUpRight
-              size={18}
-              className="text-black group-hover:text-white"
-            />
-          </div>
+            {isSaving ? (
+              <Loader2 size={20} className="text-gray-400 animate-spin" />
+            ) : (
+              <Heart
+                size={22}
+                className={
+                  isLiked
+                    ? "text-gray-900 fill-gray-900"
+                    : "text-gray-800 hover:fill-gray-800 hover:text-gray-800"
+                }
+              />
+            )}
+          </button>
         </div>
       </div>
     </article>
   );
 };
 
-const NearbyBanner = ({ count, radius, onClear }) => (
-  <div className="mb-8 p-4 bg-gray-100 border border-gray-300 rounded-xl flex items-center justify-between">
-    <div className="flex items-center gap-3">
-      <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center">
-        <MapPin size={20} className="text-white" />
-      </div>
-      <div>
-        <p className="text-sm font-medium text-black">
-          Showing {count} nearby projects within {radius}km
-        </p>
-        <p className="text-xs text-gray-600">Sorted by nearest first</p>
-      </div>
-    </div>
-    <button
-      onClick={onClear}
-      className="flex items-center gap-1 px-3 py-1.5 text-sm text-black 
-        hover:bg-gray-200 rounded-lg"
-    >
-      <X size={14} />
-      Clear
-    </button>
-  </div>
-);
-
-const ViewAllButton = ({ onClick, nearbyActive }) => (
-  <div className="mt-14 text-center">
+const ViewAllButton = ({ onClick }) => (
+  <div className="mt-10 text-center">
     <button
       onClick={onClick}
-      className="inline-flex items-center gap-2 px-8 py-4 text-sm font-semibold
-        text-white bg-black border-2 border-black rounded-full
-        hover:bg-white hover:text-black"
+      className="inline-flex items-center justify-center px-10 py-3 text-sm font-normal
+        bg-transparent text-black border border-transparent hover:border-black rounded-full"
     >
-      {nearbyActive ? "View All Nearby Projects" : "View All Projects"}
-      <ArrowUpRight size={16} />
+      All Projects
     </button>
   </div>
 );
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 export default function FeaturedProjects() {
   const router = useRouter();
 
   const { projects, loading, error } = useProjects();
   const { savingId, toggleFavorite, isFavorite } = useFavorites();
-  const { handleError: handleImageError, hasError: imageHasError, markUsingFallback } = useImageLoader();
+  const { handleError: handleImageError, markUsingFallback } = useImageLoader();
 
   const [userLocation, setUserLocation] = useState(null);
   const [nearbyLoading, setNearbyLoading] = useState(false);
@@ -753,7 +745,9 @@ export default function FeaturedProjects() {
 
   const projectsWithDistance = useMemo(() => {
     if (!nearbyActive || !userLocation) {
-      return [...projects].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+      return [...projects].sort(
+        (a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0)
+      );
     }
 
     return projects
@@ -782,7 +776,7 @@ export default function FeaturedProjects() {
 
   useEffect(() => {
     carousel.reset();
-  }, [nearbyActive]);
+  }, [nearbyActive, carousel]);
 
   const visibleProjects = useMemo(
     () =>
@@ -811,19 +805,9 @@ export default function FeaturedProjects() {
     }
   }, [router, nearbyActive, userLocation]);
 
-  console.log("🎯 Main component state:", {
-    loading,
-    error,
-    projectsCount: projects.length,
-    projectsWithDistanceCount: projectsWithDistance.length,
-    visibleProjectsCount: visibleProjects.length,
-    currentIndex: carousel.currentIndex,
-    nearbyActive
-  });
-
   return (
     <section
-      className="bg-white py-20 px-6 md:px-14"
+      className="bg-[#F7F7F7] py-12 px-4 md:px-10"
       aria-labelledby="featured-projects-title"
     >
       <div className="max-w-7xl mx-auto">
@@ -839,11 +823,12 @@ export default function FeaturedProjects() {
         />
 
         {error && (
-          <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl">
-            <p className="text-red-600">Error: {error}</p>
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            <p className="font-normal mb-1">Error loading projects:</p>
+            <p>{error}</p>
             <button
               onClick={() => window.location.reload()}
-              className="mt-2 px-4 py-2 text-sm bg-red-100 text-red-700 rounded"
+              className="mt-2 px-4 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
             >
               Retry
             </button>
@@ -861,32 +846,37 @@ export default function FeaturedProjects() {
         {loading ? (
           <LoadingState />
         ) : projectsWithDistance.length === 0 ? (
-          <EmptyState hasNearby={nearbyActive} onClearNearby={handleClearNearby} />
+          <EmptyState
+            hasNearby={nearbyActive}
+            onClearNearby={handleClearNearby}
+          />
         ) : (
           <>
             <div
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-7"
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
               role="list"
               aria-label="Featured projects"
             >
-              {visibleProjects.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  imageUrl={utils.buildImageUrl(project)}
-                  hasError={imageHasError(project.id)}
-                  isLiked={isFavorite(project.id)}
-                  isSaving={savingId === project.id}
-                  onImageError={handleImageError}
-                  onFavoriteClick={toggleFavorite}
-                  onClick={handleProjectClick}
-                  showDistance={nearbyActive}
-                  onFallbackLoad={markUsingFallback}
-                />
-              ))}
+              {visibleProjects.map((project) => {
+                const imageUrl = utils.buildImageUrl(project);
+                return (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    imageUrl={imageUrl}
+                    isLiked={isFavorite(project.id)}
+                    isSaving={savingId === project.id}
+                    onFavoriteClick={toggleFavorite}
+                    onClick={handleProjectClick}
+                    showDistance={nearbyActive}
+                    onImageError={handleImageError}
+                    onFallbackLoad={markUsingFallback}
+                  />
+                );
+              })}
             </div>
 
-            <ViewAllButton onClick={handleViewAll} nearbyActive={nearbyActive} />
+            <ViewAllButton onClick={handleViewAll} />
           </>
         )}
       </div>

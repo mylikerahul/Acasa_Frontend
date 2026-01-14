@@ -21,6 +21,8 @@ import {
   Home,
   Navigation,
   X,
+  RotateCcw,
+  Eye,
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -46,8 +48,8 @@ const FALLBACK_IMAGES = [
   "https://images.unsplash.com/photo-1600566753086-00f18fb6b3ea?w=800&h=600&fit=crop&q=80", // Contemporary home
 ];
 
-// Default fallback if all else fails
-const DEFAULT_FALLBACK = "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800&h=600&fit=crop&q=80";
+const DEFAULT_FALLBACK =
+  "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=800&h=600&fit=crop&q=80";
 
 const API_CONFIG = {
   params: { status: 1, limit: 3, featured_only: true },
@@ -103,22 +105,22 @@ const utils = {
       property.thumbnail ||
       property.featured_image ||
       (property.images && property.images[0]) ||
-      (property.property_images && utils.parseImages(property.property_images)[0]);
+      (property.property_images &&
+        utils.parseImages(property.property_images)[0]);
 
     if (!imagePath) return null;
-
     if (/^https?:\/\//i.test(imagePath)) return imagePath;
 
     const cleanPath = imagePath.replace(/^\/+/, "");
     return `${API_URL}/${cleanPath}`;
   },
 
-  // Get a consistent fallback image based on property ID
   getFallbackImage: (propertyId) => {
     if (!propertyId) return DEFAULT_FALLBACK;
-    const index = typeof propertyId === 'number' 
-      ? propertyId % FALLBACK_IMAGES.length 
-      : String(propertyId).length % FALLBACK_IMAGES.length;
+    const index =
+      typeof propertyId === "number"
+        ? propertyId % FALLBACK_IMAGES.length
+        : String(propertyId).length % FALLBACK_IMAGES.length;
     return FALLBACK_IMAGES[index];
   },
 
@@ -145,18 +147,15 @@ const utils = {
 
   calculateDistance: (lat1, lon1, lat2, lon2) => {
     if (!lat1 || !lon1 || !lat2 || !lon2) return null;
-
     const R = 6371;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
-
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos((lat1 * Math.PI) / 180) *
         Math.cos((lat2 * Math.PI) / 180) *
         Math.sin(dLon / 2) *
         Math.sin(dLon / 2);
-
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   },
@@ -173,7 +172,10 @@ const utils = {
     const transformed = {
       id: property.id,
       title: property.property_name?.trim() || "Untitled Property",
-      slug: property.slug || property.property_slug || utils.generateSlug(property.property_name),
+      slug:
+        property.slug ||
+        property.property_slug ||
+        utils.generateSlug(property.property_name),
       location: property.location || utils.formatLocation(property),
       latitude: Number(property.map_latitude) || null,
       longitude: Number(property.map_longitude) || null,
@@ -181,7 +183,7 @@ const utils = {
       currency: property.currency || "AED",
       featured_image: property.featured_image,
       thumbnail: property.thumbnail,
-      images: property.gallery?.map(img => img.Url) || [],
+      images: property.gallery?.map((img) => img.Url) || [],
       bedrooms: Number(property.bedroom) || 0,
       bathrooms: Number(property.bathrooms) || 0,
       area: Number(property.area) || 0,
@@ -191,8 +193,8 @@ const utils = {
       community: property.community || "",
       city: property.city || "",
       area_name: property.area || "",
-      featured: property.featured_property === '1',
-      ask_to_price: property.askprice === '1',
+      featured: property.featured_property === "1",
+      ask_to_price: property.askprice === "1",
       developer_name: property.developer_name || "",
       completion_date: property.completion_date || "",
       created_at: property.created_at,
@@ -204,7 +206,7 @@ const utils = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CUSTOM HOOKS
+// HOOKS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const useProperties = () => {
@@ -216,15 +218,25 @@ const useProperties = () => {
 
   const fetchProperties = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
-    utils.debug("Fetching properties from:", `${API_URL}/api/v1/properties`, "with config:", API_CONFIG);
+    utils.debug(
+      "Fetching properties from:",
+      `${API_URL}/api/v1/properties`,
+      "with config:",
+      API_CONFIG
+    );
 
     try {
-      const response = await axios.get(`${API_URL}/api/v1/properties`, API_CONFIG);
+      const response = await axios.get(
+        `${API_URL}/api/v1/properties`,
+        API_CONFIG
+      );
       const data = response.data;
       utils.debug("API Response received:", data);
 
       if (!data.success || !Array.isArray(data.listings)) {
-        throw new Error("Invalid API response structure: 'listings' array missing or not successful.");
+        throw new Error(
+          "Invalid API response structure: 'listings' array missing or not successful."
+        );
       }
 
       const properties = data.listings.map(utils.transformProperty);
@@ -238,7 +250,9 @@ const useProperties = () => {
       console.error("Properties fetch error:", {
         message: err.message,
         response_data: axios.isAxiosError(err) ? err.response?.data : null,
-        response_status: axios.isAxiosError(err) ? err.response?.status : null,
+        response_status: axios.isAxiosError(err)
+          ? err.response?.status
+          : null,
         error_object: err,
       });
       setState((prev) => ({ ...prev, loading: false, error: message }));
@@ -269,16 +283,15 @@ const useCarousel = (totalItems, visibleCount = VISIBLE_CARDS) => {
     setCurrentIndex((prev) => Math.max(0, prev - 1));
   }, []);
 
-  const goToNext = useCallback(() => {
-    setCurrentIndex((prev) => Math.min(maxIndex, prev + 1));
-  }, [maxIndex]);
+  const goToNext = useCallback(
+    () => setCurrentIndex((prev) => Math.min(maxIndex, prev + 1)),
+    [maxIndex]
+  );
 
   const reset = useCallback(() => setCurrentIndex(0), []);
 
   useEffect(() => {
-    if (currentIndex > maxIndex) {
-      setCurrentIndex(0);
-    }
+    if (currentIndex > maxIndex) setCurrentIndex(0);
   }, [maxIndex, currentIndex]);
 
   return {
@@ -337,31 +350,31 @@ const useImageLoader = () => {
     setUsingFallback((prev) => new Set(prev).add(propertyId));
   }, []);
 
-  const isUsingFallback = useCallback((id) => usingFallback.has(id), [usingFallback]);
+  const isUsingFallback = useCallback(
+    (id) => usingFallback.has(id),
+    [usingFallback]
+  );
 
   return { handleError, hasError, markUsingFallback, isUsingFallback };
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SUB-COMPONENTS (BLACK & WHITE - NO ANIMATIONS)
+// SUB-COMPONENTS (UI)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const SkeletonCard = () => (
-  <div className="bg-white rounded-2xl overflow-hidden shadow-lg border border-gray-200">
-    <div className="aspect-[4/3] bg-gray-100" />
-    <div className="p-6 space-y-3">
-      <div className="h-3 bg-gray-200 rounded w-1/4" />
-      <div className="h-5 bg-gray-200 rounded w-3/4" />
-      <div className="h-4 bg-gray-200 rounded w-1/2" />
-      <div className="pt-2">
-        <div className="h-6 bg-gray-200 rounded w-2/3" />
-      </div>
+  <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200">
+    <div className="h-52 bg-gray-100" />
+    <div className="p-4 space-y-3">
+      <div className="h-4 bg-gray-200 rounded w-1/3" />
+      <div className="h-4 bg-gray-200 rounded w-1/4" />
+      <div className="h-3 bg-gray-200 rounded w-1/2" />
     </div>
   </div>
 );
 
 const LoadingState = () => (
-  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-7">
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     {Array.from({ length: SKELETON_COUNT }, (_, i) => (
       <SkeletonCard key={i} />
     ))}
@@ -370,8 +383,8 @@ const LoadingState = () => (
 
 const EmptyState = ({ hasNearby, onClearNearby }) => (
   <div className="text-center py-16">
-    <Home size={48} className="mx-auto text-gray-400 mb-4" />
-    <h3 className="text-xl font-medium text-gray-700 mb-2">
+    <Home size={40} className="mx-auto text-gray-400 mb-4" />
+    <h3 className="text-lg font-normal text-gray-700 mb-2">
       {hasNearby ? "No Nearby Properties Found" : "No Properties Available"}
     </h3>
     <p className="text-gray-500 mb-4">
@@ -382,8 +395,8 @@ const EmptyState = ({ hasNearby, onClearNearby }) => (
     {hasNearby && (
       <button
         onClick={onClearNearby}
-        className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium
-          text-white bg-black rounded-full"
+        className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-normal
+          text-gray-800 bg-white border border-gray-300 rounded-full hover:bg-gray-50"
       >
         <X size={16} />
         Clear Nearby Filter
@@ -392,20 +405,26 @@ const EmptyState = ({ hasNearby, onClearNearby }) => (
   </div>
 );
 
+// Near Me button component रखा है लेकिन UI में use नहीं कर रहे
 const NearMeButton = ({ isActive, isLoading, onClick }) => (
   <button
     onClick={onClick}
     disabled={isLoading}
-    className={`flex items-center gap-2 px-4 py-2.5 border-2 rounded-xl text-sm font-medium
+    className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center
+      text-gray-500
       ${
         isActive
-          ? "border-black bg-black text-white"
-          : "border-gray-300 bg-white text-gray-800 hover:border-black"
+          ? "bg-black text-white border-black"
+          : "hover:border-gray-500 hover:text-gray-700"
       }
       ${isLoading ? "opacity-60 cursor-wait" : ""}`}
+    aria-label="Show properties near me"
   >
-    {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Navigation size={16} />}
-    {isLoading ? "Detecting..." : isActive ? "Near Me ✓" : "Near Me"}
+    {isLoading ? (
+      <Loader2 size={16} className="animate-spin" />
+    ) : (
+      <Navigation size={16} />
+    )}
   </button>
 );
 
@@ -413,10 +432,12 @@ const DistanceBadge = ({ distance }) => {
   if (distance === null || distance === undefined) return null;
 
   return (
-    <div className="absolute top-4 left-4 z-10 flex items-center gap-1 
-      bg-white px-2.5 py-1 rounded-full shadow-md border border-gray-200">
-      <Navigation size={12} className="text-black" />
-      <span className="text-xs font-semibold text-black">
+    <div
+      className="absolute top-3 left-3 z-10 flex items-center gap-1 
+      bg-white/90 px-2 py-0.5 rounded-full shadow-sm border border-gray-200"
+    >
+      <Navigation size={11} className="text-gray-700" />
+      <span className="text-[10px] font-normal text-gray-800">
         {utils.formatDistance(distance)}
       </span>
     </div>
@@ -424,59 +445,43 @@ const DistanceBadge = ({ distance }) => {
 };
 
 const NearbyBanner = ({ count, radius, onClear }) => (
-  <div className="mb-8 p-4 bg-gray-100 border border-gray-300 rounded-xl flex items-center justify-between">
+  <div className="mb-6 p-4 bg-white border border-gray-200 rounded-xl flex items-center justify-between">
     <div className="flex items-center gap-3">
-      <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center">
-        <MapPin size={20} className="text-white" />
+      <div className="w-9 h-9 bg-gray-900 rounded-full flex items-center justify-center">
+        <MapPin size={18} className="text-white" />
       </div>
       <div>
-        <p className="text-sm font-medium text-black">
+        <p className="text-sm font-normal text-gray-900">
           Showing {count} nearby properties within {radius}km
         </p>
-        <p className="text-xs text-gray-600">Sorted by nearest first</p>
+        <p className="text-xs text-gray-500">Sorted by nearest first</p>
       </div>
     </div>
     <button
       onClick={onClear}
-      className="flex items-center gap-1 px-3 py-1.5 text-sm text-black hover:bg-gray-200 rounded-lg"
+      className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 rounded-lg border border-gray-200"
     >
-      <X size={14} />
+      <X size={13} />
       Clear
     </button>
   </div>
 );
 
-const SectionHeader = ({
-  showNav,
-  canPrev,
-  canNext,
-  onPrev,
-  onNext,
-  nearbyActive,
-  nearbyLoading,
-  onNearbyClick,
-}) => (
-  <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-12">
-    <div>
-      <h2 className="text-3xl md:text-4xl font-light text-black uppercase tracking-wide">
-        Featured Properties
-      </h2>
-      <p className="text-gray-600 mt-2">Discover premium real estate opportunities</p>
-      <div className="mt-4 h-0.5 w-20 bg-black" />
-    </div>
+const SectionHeader = ({ showNav, canPrev, canNext, onPrev, onNext }) => (
+  <div className="flex items-center justify-between mb-8">
+    <h2
+      id="featured-properties-title"
+      className="text-xs md:text-sm font-normal tracking-[0.4em] text-[#111827] uppercase"
+    >
+      Featured Properties
+    </h2>
 
-    <div className="flex items-center gap-3">
-      <NearMeButton
-        isActive={nearbyActive}
-        isLoading={nearbyLoading}
-        onClick={onNearbyClick}
-      />
-
+    <div className="flex items-center gap-2">
       {showNav && (
-        <div className="flex items-center gap-2">
+        <>
           <NavButton direction="prev" disabled={!canPrev} onClick={onPrev} />
           <NavButton direction="next" disabled={!canNext} onClick={onNext} />
-        </div>
+        </>
       )}
     </div>
   </div>
@@ -487,13 +492,17 @@ const NavButton = ({ direction, disabled, onClick }) => (
     onClick={onClick}
     disabled={disabled}
     aria-label={direction === "prev" ? "Previous properties" : "Next properties"}
-    className={`p-3 border-2 border-gray-300 rounded-xl bg-white
-      ${disabled ? "opacity-40 cursor-not-allowed" : "hover:border-black"}`}
+    className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm
+      ${
+        disabled
+          ? "opacity-40 cursor-not-allowed"
+          : "hover:border-gray-500 hover:text-gray-700"
+      }`}
   >
     {direction === "prev" ? (
-      <ChevronLeft size={20} className="text-black" />
+      <ChevronLeft size={18} className="text-gray-700" />
     ) : (
-      <ChevronRight size={20} className="text-black" />
+      <ChevronRight size={18} className="text-gray-700" />
     )}
   </button>
 );
@@ -501,9 +510,9 @@ const NavButton = ({ direction, disabled, onClick }) => (
 const ListingTypeBadge = ({ type, hasDistance }) => (
   <span
     className={`absolute ${
-      hasDistance ? "top-12" : "top-4"
-    } left-4 z-10 px-3 py-1.5 rounded-full text-xs font-semibold shadow-sm
-      bg-white text-black border-2 border-black`}
+      hasDistance ? "top-10" : "top-3"
+    } left-3 z-10 px-2.5 py-1 rounded-full text-[10px] font-normal shadow-sm
+      bg-white/90 text-gray-800 border border-gray-200`}
   >
     {type === "rent" ? "For Rent" : "For Sale"}
   </span>
@@ -512,27 +521,35 @@ const ListingTypeBadge = ({ type, hasDistance }) => (
 const FeaturedBadge = ({ hasDistance }) => (
   <div
     className={`absolute ${
-      hasDistance ? "top-20" : "top-12"
-    } left-4 z-10 flex items-center gap-1.5 
-      bg-black text-white px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg`}
+      hasDistance ? "top-16" : "top-9"
+    } left-3 z-10 flex items-center gap-1.5 
+      bg-black text-white px-2.5 py-1 rounded-full text-[10px] font-normal shadow-sm`}
   >
-    <Sparkles size={12} />
+    <Sparkles size={11} />
     Featured
   </div>
 );
 
 const CompletionBadge = ({ date }) => {
   if (!date) return null;
-  const formattedDate = new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+  const formattedDate = new Date(date).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+  });
   return (
-    <div className="absolute bottom-4 left-4 z-10 flex items-center gap-1.5 
-      bg-white px-3 py-1.5 rounded-lg shadow-md border border-gray-200">
-      <Calendar size={14} className="text-gray-600" />
-      <span className="text-sm font-medium text-black">{formattedDate}</span>
+    <div
+      className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 
+      bg-white/90 px-2.5 py-1 rounded-lg shadow-sm border border-gray-200"
+    >
+      <Calendar size={12} className="text-gray-600" />
+      <span className="text-[11px] font-normal text-gray-800">
+        {formattedDate}
+      </span>
     </div>
   );
 };
 
+// Logic‑friendly favorite button (not used directly now)
 const FavoriteButton = ({ isLiked, isSaving, onClick }) => (
   <button
     onClick={onClick}
@@ -554,14 +571,18 @@ const FavoriteButton = ({ isLiked, isSaving, onClick }) => (
   </button>
 );
 
-// Updated PropertyImage component with fallback support
-const PropertyImage = ({ property, imageUrl, hasError, onError, onFallbackLoad }) => {
+const PropertyImage = ({
+  property,
+  imageUrl,
+  hasError,
+  onError,
+  onFallbackLoad,
+}) => {
   const [currentSrc, setCurrentSrc] = useState(imageUrl);
   const [isUsingFallback, setIsUsingFallback] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // Reset state when imageUrl changes
   useEffect(() => {
     if (imageUrl) {
       setCurrentSrc(imageUrl);
@@ -569,7 +590,6 @@ const PropertyImage = ({ property, imageUrl, hasError, onError, onFallbackLoad }
       setFallbackError(false);
       setLoaded(false);
     } else {
-      // No image URL provided, use fallback immediately
       const fallbackUrl = utils.getFallbackImage(property.id);
       setCurrentSrc(fallbackUrl);
       setIsUsingFallback(true);
@@ -579,29 +599,31 @@ const PropertyImage = ({ property, imageUrl, hasError, onError, onFallbackLoad }
 
   const handleImageError = () => {
     if (!isUsingFallback) {
-      // First error - switch to fallback
       const fallbackUrl = utils.getFallbackImage(property.id);
-      utils.debug(`Image failed for property ${property.id}, using fallback:`, fallbackUrl);
+      utils.debug(
+        `Image failed for property ${property.id}, using fallback:`,
+        fallbackUrl
+      );
       setCurrentSrc(fallbackUrl);
       setIsUsingFallback(true);
       setLoaded(false);
       onError(property.id, imageUrl);
       if (onFallbackLoad) onFallbackLoad(property.id);
     } else {
-      // Fallback also failed
       utils.debug(`Fallback image also failed for property ${property.id}`);
       setFallbackError(true);
     }
   };
 
-  // Show placeholder if both original and fallback failed
   if (fallbackError) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-        <div className="w-20 h-20 bg-gray-300 rounded-full flex items-center justify-center mb-3">
-          <Home size={36} className="text-gray-500" />
+        <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center mb-3">
+          <Home size={30} className="text-gray-500" />
         </div>
-        <span className="text-gray-500 text-sm font-medium">Property Image</span>
+        <span className="text-gray-500 text-sm font-normal">
+          Property Image
+        </span>
         <span className="text-gray-400 text-xs mt-1">Coming Soon</span>
       </div>
     );
@@ -609,13 +631,12 @@ const PropertyImage = ({ property, imageUrl, hasError, onError, onFallbackLoad }
 
   return (
     <div className="relative w-full h-full">
-      {/* Loading spinner */}
       {!loaded && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-          <Loader2 size={30} className="text-gray-400 animate-spin" />
+          <Loader2 size={26} className="text-gray-400 animate-spin" />
         </div>
       )}
-      
+
       <img
         src={currentSrc || utils.getFallbackImage(property.id)}
         alt={property.title || "Property Image"}
@@ -627,10 +648,9 @@ const PropertyImage = ({ property, imageUrl, hasError, onError, onFallbackLoad }
         loading="lazy"
         decoding="async"
       />
-      
-      {/* Optional: Show a subtle indicator that this is a placeholder image */}
+
       {isUsingFallback && loaded && (
-        <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
+        <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded flex items-center gap-1">
           <ImageOff size={10} />
           <span>Sample</span>
         </div>
@@ -651,9 +671,6 @@ const PropertyCard = ({
   showDistance = false,
   onFallbackLoad,
 }) => {
-  const bedroomText = utils.formatBedrooms(property.bedrooms);
-  const bathroomText = utils.formatBathrooms(property.bathrooms);
-  const areaText = utils.formatArea(property.area, property.area_unit);
   const hasDistanceBadge = showDistance && property.distance !== null;
 
   const handleFavoriteClick = (e) => {
@@ -661,19 +678,27 @@ const PropertyCard = ({
     onFavoriteClick(property.id);
   };
 
+  const priceText = property.ask_to_price
+    ? "Price on Request"
+    : `${property.currency} ${utils.formatPrice(property.price)}`;
+
   return (
     <article
       onClick={() => onClick(property)}
-      className="group bg-white rounded-2xl overflow-hidden shadow-md border border-gray-200 
-        cursor-pointer hover:shadow-xl transition-shadow duration-300"
+      className="group bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200 
+        cursor-pointer hover:shadow-md transition-shadow duration-200 flex flex-col"
       role="button"
       tabIndex={0}
       onKeyDown={(e) => e.key === "Enter" && onClick(property)}
     >
-      {/* Image Section */}
-      <div className="relative aspect-[4/3] bg-gray-100 overflow-hidden">
+      {/* Image ( थोड़ा छोटा ) */}
+      <div className="relative h-56 bg-gray-100 overflow-hidden">
         {hasDistanceBadge && <DistanceBadge distance={property.distance} />}
-        <ListingTypeBadge type={property.listing_type} hasDistance={hasDistanceBadge} />
+
+        <ListingTypeBadge
+          type={property.listing_type}
+          hasDistance={hasDistanceBadge}
+        />
         {property.featured && <FeaturedBadge hasDistance={hasDistanceBadge} />}
 
         <PropertyImage
@@ -684,101 +709,98 @@ const PropertyCard = ({
           onFallbackLoad={onFallbackLoad}
         />
 
-        {property.completion_date && <CompletionBadge date={property.completion_date} />}
+        {/* Small overlay buttons top-right */}
+        <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
+          <button
+            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="View details"
+          >
+            <Eye size={15} className="text-gray-700" />
+          </button>
+          <button
+            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="More options"
+          >
+            <RotateCcw size={15} className="text-gray-700" />
+          </button>
+        </div>
 
-        <FavoriteButton
-          isLiked={isLiked}
-          isSaving={isSaving}
-          onClick={handleFavoriteClick}
-        />
+        {/* Fake image arrows */}
+        <button
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Previous image"
+        >
+          <ChevronLeft size={14} className="text-gray-700" />
+        </button>
+        <button
+          className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Next image"
+        >
+          <ChevronRight size={14} className="text-gray-700" />
+        </button>
+
+        {property.completion_date && (
+          <CompletionBadge date={property.completion_date} />
+        )}
       </div>
 
-      {/* Content Section */}
-      <div className="p-5">
-        {property.developer_name && (
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-            <Building2 size={12} />
-            {property.developer_name}
+      {/* Content – heart नीचे */}
+      <div className="flex-1 flex flex-col justify-between px-5 pt-4 pb-4">
+        <div className="pr-2">
+          <h3 className="text-sm md:text-[15px] font-medium text-gray-900">
+            {property.title}
+          </h3>
+          <p className="mt-1 text-xs text-gray-500">
+            {property.location || "Location TBA"}
           </p>
-        )}
-
-        <h3 className="text-lg font-semibold text-black mb-2 truncate">
-          {property.title}
-        </h3>
-
-        <div className="flex items-center text-gray-600 mb-4">
-          <MapPin size={14} className="mr-1.5 flex-shrink-0" />
-          <span className="text-sm truncate">{property.location || "Location TBA"}</span>
-          {showDistance && property.distance !== null && (
-            <span className="ml-2 text-xs text-black font-medium">
-              ({utils.formatDistance(property.distance)})
-            </span>
-          )}
         </div>
 
-        {/* Property Specs */}
-        <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-200">
-          {bedroomText && (
-            <div className="flex items-center gap-1.5 text-sm text-gray-600">
-              <Bed size={16} className="text-gray-500" />
-              <span className="font-medium text-black">{bedroomText}</span>
-            </div>
-          )}
+        <div className="mt-3 flex items-center justify-between">
+          <p className="text-xs text-gray-500">
+            Start Price -{" "}
+            <span className="font-normal text-gray-900">{priceText}</span>
+          </p>
 
-          {bathroomText && (
-            <div className="flex items-center gap-1.5 text-sm text-gray-600">
-              <Bath size={16} className="text-gray-500" />
-              <span className="font-medium text-black">{bathroomText}</span>
-            </div>
-          )}
-
-          {areaText && (
-            <div className="flex items-center gap-1.5 text-sm text-gray-600">
-              <Ruler size={16} className="text-gray-500" />
-              <span className="font-medium text-black">{areaText}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Price & CTA */}
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">
-              {property.ask_to_price ? "Price" : "Starting From"}
-            </p>
-            <p className="text-xl font-bold text-black">
-              {property.ask_to_price
-                ? "Price on Request"
-                : `${property.currency} ${utils.formatPrice(property.price)}`}
-            </p>
-          </div>
-
-          <div
-            className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center
-              group-hover:bg-black transition-colors duration-300"
-            aria-hidden="true"
+          <button
+            onClick={handleFavoriteClick}
+            disabled={isSaving}
+            aria-label={
+              isLiked ? "Remove from favorites" : "Add to favorites"
+            }
+            className={`flex items-center justify-center
+              ${isSaving ? "cursor-wait opacity-60" : ""}`}
           >
-            <ArrowUpRight
-              size={18}
-              className="text-black group-hover:text-white transition-colors duration-300"
-            />
-          </div>
+            {isSaving ? (
+              <Loader2 size={20} className="text-gray-400 animate-spin" />
+            ) : (
+              <Heart
+                size={22}
+                className={
+                  isLiked
+                    ? "text-gray-900 fill-gray-900"
+                    : "text-gray-800 hover:fill-gray-800 hover:text-gray-800"
+                }
+              />
+            )}
+          </button>
         </div>
       </div>
     </article>
   );
 };
 
-const ViewAllButton = ({ onClick, nearbyActive }) => (
-  <div className="mt-14 text-center">
+const ViewAllButton = ({ onClick }) => (
+  <div className="mt-10 text-center">
     <button
       onClick={onClick}
-      className="inline-flex items-center gap-2 px-8 py-4 text-sm font-semibold
-        text-white bg-black border-2 border-black rounded-full
-        hover:bg-white hover:text-black transition-all duration-300"
+      className="inline-flex items-center justify-center px-10 py-3 text-sm font-normal
+        bg-transparent text-black border border-transparent hover:border-black rounded-full"
     >
-      {nearbyActive ? "View All Nearby Properties" : "View All Properties"}
-      <ArrowUpRight size={16} />
+      All Properties
     </button>
   </div>
 );
@@ -792,12 +814,17 @@ export default function FeaturedProperties() {
 
   const { properties, loading, error } = useProperties();
   const { savingId, toggleFavorite, isFavorite } = useFavorites();
-  const { handleError: handleImageError, hasError: imageHasError, markUsingFallback } = useImageLoader();
+  const {
+    handleError: handleImageError,
+    hasError: imageHasError,
+    markUsingFallback,
+  } = useImageLoader();
 
   const [userLocation, setUserLocation] = useState(null);
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyActive, setNearbyActive] = useState(false);
 
+  // Near Me logic अभी भी रखा है (future use), UI में button नहीं दिखा रहे
   const handleNearbyClick = useCallback(() => {
     if (nearbyActive) {
       setNearbyActive(false);
@@ -856,7 +883,9 @@ export default function FeaturedProperties() {
   const propertiesWithDistance = useMemo(() => {
     utils.debug("Recalculating propertiesWithDistance...");
     if (!nearbyActive || !userLocation) {
-      utils.debug("Not nearby active or no user location. Sorting by featured status.");
+      utils.debug(
+        "Not nearby active or no user location. Sorting by featured status."
+      );
       return [...properties].sort(
         (a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0)
       );
@@ -874,8 +903,12 @@ export default function FeaturedProperties() {
         return { ...property, distance };
       })
       .filter((property) => {
-        const keep = property.distance !== null && property.distance <= NEARBY_RADIUS_KM;
-        if (!keep) utils.debug(`Property ${property.id} (${property.title}) excluded: distance ${property.distance} > ${NEARBY_RADIUS_KM}km or lat/lng missing.`);
+        const keep =
+          property.distance !== null && property.distance <= NEARBY_RADIUS_KM;
+        if (!keep)
+          utils.debug(
+            `Property ${property.id} (${property.title}) excluded: distance ${property.distance} > ${NEARBY_RADIUS_KM}km or lat/lng missing.`
+          );
         return keep;
       })
       .sort((a, b) => {
@@ -931,7 +964,7 @@ export default function FeaturedProperties() {
 
   return (
     <section
-      className="bg-white py-20 px-6 md:px-14"
+      className="bg-[#F7F7F7] py-12 px-4 md:px-10"
       aria-labelledby="featured-properties-title"
     >
       <div className="max-w-7xl mx-auto">
@@ -941,18 +974,15 @@ export default function FeaturedProperties() {
           canNext={carousel.canGoNext}
           onPrev={carousel.goToPrev}
           onNext={carousel.goToNext}
-          nearbyActive={nearbyActive}
-          nearbyLoading={nearbyLoading}
-          onNearbyClick={handleNearbyClick}
         />
 
         {error && (
-          <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
-            <p className="font-medium">Error loading properties:</p>
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            <p className="font-normal mb-1">Error loading properties:</p>
             <p>{error}</p>
             <button
               onClick={() => window.location.reload()}
-              className="mt-2 px-4 py-2 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
+              className="mt-2 px-4 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
             >
               Retry
             </button>
@@ -970,11 +1000,14 @@ export default function FeaturedProperties() {
         {loading ? (
           <LoadingState />
         ) : propertiesWithDistance.length === 0 ? (
-          <EmptyState hasNearby={nearbyActive} onClearNearby={handleClearNearby} />
+          <EmptyState
+            hasNearby={nearbyActive}
+            onClearNearby={handleClearNearby}
+          />
         ) : (
           <>
             <div
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-7"
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
               role="list"
               aria-label="Featured properties"
             >
@@ -998,7 +1031,7 @@ export default function FeaturedProperties() {
               })}
             </div>
 
-            <ViewAllButton onClick={handleViewAll} nearbyActive={nearbyActive} />
+            <ViewAllButton onClick={handleViewAll} />
           </>
         )}
       </div>

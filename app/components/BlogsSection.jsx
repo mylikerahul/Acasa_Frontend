@@ -4,19 +4,28 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import toast from "react-hot-toast";
-import { ImageOff, BookOpen, ArrowUpRight, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  ImageOff,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  RotateCcw,
+  Heart,
+  Loader2,
+} from "lucide-react";
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // CONSTANTS & CONFIG
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const VISIBLE_CARDS = 3;
 const SKELETON_COUNT = 3;
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // UTILS
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 const utils = {
   generateSlug: (title) => {
@@ -30,9 +39,8 @@ const utils = {
       .replace(/^-|-$/g, "");
   },
 
-  // ✅ FIXED: Correct image URL builder
+  // ✅ Correct image URL builder (same as your original)
   buildImageUrl: (blog) => {
-    // Get image path from imageurl field (your API field name)
     const imagePath = blog.imageurl || blog.image || blog.featured_image || blog.thumbnail;
     
     if (!imagePath) return null;
@@ -100,7 +108,9 @@ const utils = {
     id: blog.id || blog._id,
     title: blog.title?.trim() || "Untitled Blog",
     slug: blog.slug || blog.seo_slug || utils.generateSlug(blog.title),
-    description: utils.stripHtml(blog.descriptions || blog.description || blog.seo_description || ""),
+    description: utils.stripHtml(
+      blog.descriptions || blog.description || blog.seo_description || ""
+    ),
     // ✅ Keep original imageurl for building URL
     imageurl: blog.imageurl,
     image: blog.image,
@@ -111,9 +121,9 @@ const utils = {
   }),
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // HOOKS
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 const useBlogs = () => {
   const [state, setState] = useState({
@@ -127,9 +137,9 @@ const useBlogs = () => {
 
     try {
       const { data } = await axios.get(`${API_URL}/api/v1/blogs/all`, {
-        params: { 
-          status: 1, 
-          limit: 20 
+        params: {
+          status: 1,
+          limit: 20,
         },
         timeout: 10000,
       });
@@ -154,7 +164,7 @@ const useBlogs = () => {
       );
 
       const blogs = publishedBlogs.map(utils.transformBlog);
-      
+
       setState({ blogs, loading: false, error: null });
     } catch (err) {
       const message = axios.isAxiosError(err)
@@ -185,13 +195,15 @@ const useCarousel = (totalItems, visibleCount = VISIBLE_CARDS) => {
   const canGoNext = currentIndex < maxIndex;
   const showNavigation = totalItems > visibleCount;
 
-  const goToPrev = useCallback(() => {
-    setCurrentIndex((prev) => Math.max(0, prev - 1));
-  }, []);
+  const goToPrev = useCallback(
+    () => setCurrentIndex((prev) => Math.max(0, prev - 1)),
+    []
+  );
 
-  const goToNext = useCallback(() => {
-    setCurrentIndex((prev) => Math.min(maxIndex, prev + 1));
-  }, [maxIndex]);
+  const goToNext = useCallback(
+    () => setCurrentIndex((prev) => Math.min(maxIndex, prev + 1)),
+    [maxIndex]
+  );
 
   useEffect(() => {
     if (currentIndex > maxIndex) {
@@ -221,17 +233,47 @@ const useImageLoader = () => {
   return { handleError, hasError };
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// UI COMPONENTS
-// ═══════════════════════════════════════════════════════════════════════════════
+const useFavorites = () => {
+  const [favorites, setFavorites] = useState(new Set());
+  const [savingId, setSavingId] = useState(null);
+
+  const toggleFavorite = useCallback((blogId) => {
+    setSavingId(blogId);
+
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      const isAdding = !next.has(blogId);
+
+      if (isAdding) {
+        next.add(blogId);
+        toast.success("Added to favorites!");
+      } else {
+        next.delete(blogId);
+        toast.success("Removed from favorites");
+      }
+
+      return next;
+    });
+
+    setTimeout(() => setSavingId(null), 300);
+  }, []);
+
+  const isFavorite = useCallback((id) => favorites.has(id), [favorites]);
+
+  return { favorites, savingId, toggleFavorite, isFavorite };
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// UI COMPONENTS (Properties/Projects style)
+// ═══════════════════════════════════════════════════════════════════
 
 const SkeletonCard = () => (
-  <div className="bg-white rounded-xl overflow-hidden animate-pulse">
-    <div className="aspect-[16/10] bg-gray-200" />
+  <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200">
+    <div className="h-56 bg-gray-100" />
     <div className="p-4 space-y-3">
+      <div className="h-4 bg-gray-200 rounded w-1/3" />
       <div className="h-4 bg-gray-200 rounded w-3/4" />
-      <div className="h-3 bg-gray-200 rounded w-full" />
-      <div className="h-3 bg-gray-200 rounded w-2/3" />
+      <div className="h-3 bg-gray-200 rounded w-1/2" />
     </div>
   </div>
 );
@@ -246,73 +288,104 @@ const LoadingState = () => (
 
 const EmptyState = () => (
   <div className="text-center py-16">
-    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-      <BookOpen size={32} className="text-gray-400" />
-    </div>
-    <h3 className="text-lg font-medium text-gray-700 mb-2">No Blogs Available</h3>
-    <p className="text-sm text-gray-500">Check back soon for new articles</p>
+    <BookOpen size={40} className="mx-auto text-gray-400 mb-4" />
+    <h3 className="text-lg font-normal text-gray-700 mb-2">
+      No Blogs Available
+    </h3>
+    <p className="text-gray-500 mb-4">Check back soon for new articles</p>
   </div>
 );
 
-const SectionHeader = () => (
-  <div className="mb-8">
+const SectionHeader = ({ showNav, canPrev, canNext, onPrev, onNext }) => (
+  <div className="flex items-center justify-between mb-8">
     <h2
       id="blogs-section-title"
-      className="text-xs md:text-sm font-semibold tracking-[0.25em] uppercase text-black"
+      className="text-xs md:text-sm font-normal tracking-[0.4em] text-[#111827] uppercase"
     >
       Blogs
     </h2>
+
+    {showNav && (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onPrev}
+          disabled={!canPrev}
+          aria-label="Previous blogs"
+          className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm
+            ${
+              !canPrev
+                ? "opacity-40 cursor-not-allowed"
+                : "hover:border-gray-500 hover:text-gray-700"
+            }`}
+        >
+          <ChevronLeft size={18} className="text-gray-700" />
+        </button>
+        <button
+          onClick={onNext}
+          disabled={!canNext}
+          aria-label="Next blogs"
+          className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center shadow-sm
+            ${
+              !canNext
+                ? "opacity-40 cursor-not-allowed"
+                : "hover:border-gray-500 hover:text-gray-700"
+            }`}
+        >
+          <ChevronRight size={18} className="text-gray-700" />
+        </button>
+      </div>
+    )}
   </div>
 );
 
-const CornerNav = ({ showNav, canPrev, canNext, onPrev, onNext }) => {
-  if (!showNav) return null;
-
-  return (
-    <div className="absolute top-6 right-6 md:top-10 md:right-14 flex items-center gap-2 z-10">
-      <button
-        onClick={onPrev}
-        disabled={!canPrev}
-        className={`w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm transition-all
-          ${!canPrev ? "opacity-40 cursor-not-allowed" : "hover:bg-gray-50 hover:border-gray-300 hover:shadow-md"}`}
-      >
-        <ChevronLeft size={18} className="text-black" />
-      </button>
-      <button
-        onClick={onNext}
-        disabled={!canNext}
-        className={`w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm transition-all
-          ${!canNext ? "opacity-40 cursor-not-allowed" : "hover:bg-gray-50 hover:border-gray-300 hover:shadow-md"}`}
-      >
-        <ChevronRight size={18} className="text-black" />
-      </button>
-    </div>
-  );
-};
-
 const BlogImage = ({ blog, imageUrl, hasError, onError }) => {
+  const [loaded, setLoaded] = useState(false);
+
   if (!imageUrl || hasError) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-        <ImageOff size={36} className="text-gray-300 mb-2" />
-        <span className="text-gray-400 text-xs">No Image</span>
+        <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center mb-3">
+          <BookOpen size={30} className="text-gray-500" />
+        </div>
+        <span className="text-gray-500 text-sm font-normal">Blog Image</span>
+        <span className="text-gray-400 text-xs mt-1">Coming Soon</span>
       </div>
     );
   }
 
   return (
-    <img
-      src={imageUrl}
-      alt={blog.title}
-      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-      onError={() => onError(blog.id)}
-      loading="lazy"
-    />
+    <div className="relative w-full h-full">
+      {!loaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+          <Loader2 size={26} className="text-gray-400 animate-spin" />
+        </div>
+      )}
+
+      <img
+        src={imageUrl}
+        alt={blog.title}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${
+          loaded ? "opacity-100" : "opacity-0"
+        }`}
+        onLoad={() => setLoaded(true)}
+        onError={() => onError(blog.id)}
+        loading="lazy"
+        decoding="async"
+      />
+    </div>
   );
 };
 
-const BlogCard = ({ blog, imageUrl, hasError, onImageError, onClick }) => {
-  // Format category for display
+const BlogCard = ({
+  blog,
+  imageUrl,
+  hasError,
+  isLiked,
+  isSaving,
+  onImageError,
+  onFavoriteClick,
+  onClick,
+}) => {
   const formattedCategory = blog.category
     ? blog.category
         .split("-")
@@ -320,86 +393,162 @@ const BlogCard = ({ blog, imageUrl, hasError, onImageError, onClick }) => {
         .join(" ")
     : null;
 
+  const handleFavoriteClick = (e) => {
+    e.stopPropagation();
+    onFavoriteClick(blog.id);
+  };
+
   return (
     <article
       onClick={() => onClick(blog)}
-      className="group cursor-pointer"
+      className="group bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200 
+        cursor-pointer hover:shadow-md transition-shadow duration-200 flex flex-col"
       role="button"
       tabIndex={0}
       onKeyDown={(e) => e.key === "Enter" && onClick(blog)}
     >
       {/* Image */}
-      <div className="aspect-[16/10] bg-gray-100 rounded-xl overflow-hidden mb-4 shadow-sm group-hover:shadow-lg transition-all">
+      <div className="relative h-56 bg-gray-100 overflow-hidden">
+        {/* Category badge */}
+        {formattedCategory && (
+          <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full text-[10px] font-normal shadow-sm bg-white/90 text-gray-800 border border-gray-200">
+            {formattedCategory}
+          </div>
+        )}
+
         <BlogImage
           blog={blog}
           imageUrl={imageUrl}
           hasError={hasError}
           onError={onImageError}
         />
-      </div>
 
-      {/* Category & Date */}
-      <div className="flex items-center gap-3 mb-3 text-xs text-gray-500">
-        {formattedCategory && (
-          <span className="px-2.5 py-1 bg-black text-white rounded-full font-medium">
-            {formattedCategory}
-          </span>
-        )}
+        {/* Top-right buttons */}
+        <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
+          <button
+            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="View details"
+          >
+            <Eye size={15} className="text-gray-700" />
+          </button>
+          <button
+            className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="More options"
+          >
+            <RotateCcw size={15} className="text-gray-700" />
+          </button>
+        </div>
+
+        {/* Fake image arrows */}
+        <button
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Previous image"
+        >
+          <ChevronLeft size={14} className="text-gray-700" />
+        </button>
+        <button
+          className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow-sm border border-gray-200"
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Next image"
+        >
+          <ChevronRight size={14} className="text-gray-700" />
+        </button>
+
+        {/* Date badge bottom left */}
         {blog.createdAt && (
-          <span>{utils.formatDate(blog.createdAt)}</span>
+          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 bg-white/90 px-2.5 py-1 rounded-lg shadow-sm border border-gray-200">
+            <span className="text-[11px] font-normal text-gray-800">
+              {utils.formatDate(blog.createdAt)}
+            </span>
+          </div>
         )}
       </div>
 
-      {/* Title + Arrow */}
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <h3 className="text-base md:text-lg font-semibold text-black leading-snug line-clamp-2 group-hover:text-gray-700 transition-colors">
-          {blog.title}
-        </h3>
-        <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-black transition-colors">
-          <ArrowUpRight 
-            size={16} 
-            className="text-gray-600 group-hover:text-white transition-colors" 
-          />
+      {/* Content */}
+      <div className="flex-1 flex flex-col justify-between px-5 pt-4 pb-4">
+        <div className="pr-2">
+          <h3 className="text-sm md:text-[15px] font-medium text-gray-900 line-clamp-2">
+            {blog.title}
+          </h3>
+          {blog.description && (
+            <p className="mt-2 text-xs text-gray-600 line-clamp-2">
+              {utils.truncateText(blog.description, 120)}
+            </p>
+          )}
+        </div>
+
+        {/* Author + Heart */}
+        <div className="mt-3 flex items-center justify-between">
+          <p className="text-xs text-gray-500">
+            {blog.author ? (
+              <>
+                By <span className="font-normal text-gray-900">{blog.author}</span>
+              </>
+            ) : (
+              <span className="font-normal text-gray-900">Read More</span>
+            )}
+          </p>
+
+          <button
+            onClick={handleFavoriteClick}
+            disabled={isSaving}
+            aria-label={isLiked ? "Remove from favorites" : "Add to favorites"}
+            className={`flex items-center justify-center
+              ${isSaving ? "cursor-wait opacity-60" : ""}`}
+          >
+            {isSaving ? (
+              <Loader2 size={20} className="text-gray-400 animate-spin" />
+            ) : (
+              <Heart
+                size={22}
+                className={
+                  isLiked
+                    ? "text-gray-900 fill-gray-900"
+                    : "text-gray-800 hover:fill-gray-800 hover:text-gray-800"
+                }
+              />
+            )}
+          </button>
         </div>
       </div>
-
-      {/* Description */}
-      {blog.description && (
-        <p className="text-sm text-gray-600 leading-relaxed line-clamp-2">
-          {utils.truncateText(blog.description, 120)}
-        </p>
-      )}
     </article>
   );
 };
 
 const ViewAllButton = ({ onClick }) => (
-  <div className="mt-12 text-center">
+  <div className="mt-10 text-center">
     <button
       onClick={onClick}
-      className="inline-flex items-center justify-center gap-2 px-8 py-3.5 text-sm font-medium
-        text-black bg-white border-2 border-gray-200 rounded-full
-        hover:border-black hover:bg-black hover:text-white transition-all duration-300"
+      className="inline-flex items-center justify-center px-10 py-3 text-sm font-normal
+        bg-transparent text-black border border-transparent hover:border-black rounded-full"
     >
-      View All Blogs
-      <ArrowUpRight size={16} />
+      All Blogs
     </button>
   </div>
 );
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 
 export default function BlogsSection() {
   const router = useRouter();
 
   const { blogs, loading, error } = useBlogs();
   const carousel = useCarousel(blogs.length);
-  const { handleError: handleImageError, hasError: imageHasError } = useImageLoader();
+  const { handleError: handleImageError, hasError: imageHasError } =
+    useImageLoader();
+  const { savingId, toggleFavorite, isFavorite } = useFavorites();
 
   const visibleBlogs = useMemo(
-    () => blogs.slice(carousel.currentIndex, carousel.currentIndex + VISIBLE_CARDS),
+    () =>
+      blogs.slice(
+        carousel.currentIndex,
+        carousel.currentIndex + VISIBLE_CARDS
+      ),
     [blogs, carousel.currentIndex]
   );
 
@@ -420,19 +569,17 @@ export default function BlogsSection() {
 
   return (
     <section
-      className="relative bg-gradient-to-r from-white via-white to-[#ffe9c4] py-12 md:py-16 px-6 md:px-14"
+      className="bg-[#F7F7F7] py-12 px-4 md:px-10"
       aria-labelledby="blogs-section-title"
     >
-      <CornerNav
-        showNav={carousel.showNavigation}
-        canPrev={carousel.canGoPrev}
-        canNext={carousel.canGoNext}
-        onPrev={carousel.goToPrev}
-        onNext={carousel.goToNext}
-      />
-
       <div className="max-w-7xl mx-auto">
-        <SectionHeader />
+        <SectionHeader
+          showNav={carousel.showNavigation}
+          canPrev={carousel.canGoPrev}
+          canNext={carousel.canGoNext}
+          onPrev={carousel.goToPrev}
+          onNext={carousel.goToNext}
+        />
 
         {loading ? (
           <LoadingState />
@@ -441,7 +588,7 @@ export default function BlogsSection() {
         ) : (
           <>
             <div
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
               role="list"
               aria-label="Blog articles"
             >
@@ -451,7 +598,10 @@ export default function BlogsSection() {
                   blog={blog}
                   imageUrl={utils.buildImageUrl(blog)}
                   hasError={imageHasError(blog.id)}
+                  isLiked={isFavorite(blog.id)}
+                  isSaving={savingId === blog.id}
                   onImageError={handleImageError}
+                  onFavoriteClick={toggleFavorite}
                   onClick={handleBlogClick}
                 />
               ))}
